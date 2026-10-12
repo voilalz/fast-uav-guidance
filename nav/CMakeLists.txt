@@ -22,8 +22,16 @@ target_include_directories(navcore PUBLIC include)
 target_compile_options(navcore PRIVATE -Wall -Wextra
   $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
 
+add_library(navsim STATIC sim/sim_core.cpp)
+target_link_libraries(navsim PUBLIC navcore)
+target_compile_options(navsim PRIVATE -Wall -Wextra)
+
 add_executable(nav_sim sim/sim_main.cpp)
-target_link_libraries(nav_sim navcore)
+target_link_libraries(nav_sim navsim)
+
+find_package(Threads REQUIRED)
+add_executable(nav_mc sim/mc_main.cpp)
+target_link_libraries(nav_mc navsim Threads::Threads)
 
 add_executable(nav_mcu_host apps/mcu_main.cpp)
 target_link_libraries(nav_mcu_host navcore)

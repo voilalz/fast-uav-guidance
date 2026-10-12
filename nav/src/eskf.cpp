@@ -28,7 +28,11 @@ void Eskf::init(const NavState& x0, const InitSigma& s) {
   P_(idx::BB, idx::BB) = s.baro * s.baro;
   P_(idx::KV, idx::KV) = s.vo_scale * s.vo_scale;
   P_(idx::MB, idx::MB) = s.mag_bias * s.mag_bias;
+  if (!cfg_.est_baro_bias) P_(idx::BB, idx::BB) = 0;
+  if (!cfg_.est_vo_scale) P_(idx::KV, idx::KV) = 0;
+  if (!cfg_.est_mag_bias) P_(idx::MB, idx::MB) = 0;
   cov_dt_acc_ = 0;
+  cum_dx_ = StateVec{};
   acc_n_ = 0;
   f_acc_ = Vec3{};
   w_acc_ = Vec3{};
@@ -79,6 +83,7 @@ void Eskf::propagateCov(real dt) {
   Phi(idx::W, idx::W) = Phi(idx::W + 1, idx::W + 1) = std::exp(-dt / cfg_.wind_tau);
   Phi(idx::BB, idx::BB) = std::exp(-dt / cfg_.baro_tau);
   Phi(idx::MB, idx::MB) = std::exp(-dt / cfg_.mag_bias_tau);
+  if (cfg_.vo_scale_tau > 0) Phi(idx::KV, idx::KV) = std::exp(-dt / cfg_.vo_scale_tau);
 
   P_ = Phi * P_ * Phi.t();
 
@@ -90,9 +95,13 @@ void Eskf::propagateCov(real dt) {
   const real qw = 2 * cfg_.wind_sigma * cfg_.wind_sigma / cfg_.wind_tau * dt;
   P_(idx::W, idx::W) += qw;
   P_(idx::W + 1, idx::W + 1) += qw;
-  P_(idx::BB, idx::BB) += 2 * cfg_.baro_sigma * cfg_.baro_sigma / cfg_.baro_tau * dt;
-  P_(idx::KV, idx::KV) += cfg_.vo_scale_rw * cfg_.vo_scale_rw * dt;
-  P_(idx::MB, idx::MB) += 2 * cfg_.mag_bias_sigma * cfg_.mag_bias_sigma / cfg_.mag_bias_tau * dt;
+  if (cfg_.est_baro_bias) P_(idx::BB, idx::BB) += 2 * cfg_.baro_sigma * cfg_.baro_sigma / cfg_.baro_tau * dt;
+  if (cfg_.est_vo_scale)
+    P_(idx::KV, idx::KV) += cfg_.vo_scale_tau > 0
+                                ? 2 * cfg_.vo_scale_sigma * cfg_.vo_scale_sigma / cfg_.vo_scale_tau * dt
+                                : cfg_.vo_scale_rw * cfg_.vo_scale_rw * dt;
+  if (cfg_.est_mag_bias)
+    P_(idx::MB, idx::MB) += 2 * cfg_.mag_bias_sigma * cfg_.mag_bias_sigma / cfg_.mag_bias_tau * dt;
 
   // 数值对称化
   for (std::size_t r = 0; r < kN; ++r)
@@ -120,22 +129,27 @@ UpdateResult Eskf::update(const Mat<M, 1>& r, const Mat<M, kN>& H, const Mat<M, 
 }
 
 void Eskf::inject(const StateVec& dx) {
-  const earth::Radii r = earth::radii(x_.lat);
-  x_.lat += dx[idx::P] / (r.rn + x_.h);
-  x_.lon += dx[idx::P + 1] / ((r.re + x_.h) * std::cos(x_.lat));
-  x_.h -= dx[idx::P + 2];
+  applyCorrection(x_, dx);
+  cum_dx_ += dx;
+}
+
+void Eskf::applyCorrection(NavState& x, const StateVec& dx) {
+  const earth::Radii r = earth::radii(x.lat);
+  x.lat += dx[idx::P] / (r.rn + x.h);
+  x.lon += dx[idx::P + 1] / ((r.re + x.h) * std::cos(x.lat));
+  x.h -= dx[idx::P + 2];
   for (int i = 0; i < 3; ++i) {
-    x_.vn[i] += dx[idx::V + i];
-    x_.bg[i] += dx[idx::BG + i];
-    x_.ba[i] += dx[idx::BA + i];
+    x.vn[i] += dx[idx::V + i];
+    x.bg[i] += dx[idx::BG + i];
+    x.ba[i] += dx[idx::BA + i];
   }
-  x_.q = Quat::exp(vec3(dx[idx::TH], dx[idx::TH + 1], dx[idx::TH + 2])) * x_.q;
-  x_.q.normalize();
-  x_.wind[0] += dx[idx::W];
-  x_.wind[1] += dx[idx::W + 1];
-  x_.baro_bias += dx[idx::BB];
-  x_.vo_scale += dx[idx::KV];
-  x_.mag_bias += dx[idx::MB];
+  x.q = Quat::exp(vec3(dx[idx::TH], dx[idx::TH + 1], dx[idx::TH + 2])) * x.q;
+  x.q.normalize();
+  x.wind[0] += dx[idx::W];
+  x.wind[1] += dx[idx::W + 1];
+  x.baro_bias += dx[idx::BB];
+  x.vo_scale += dx[idx::KV];
+  x.mag_bias += dx[idx::MB];
   // 注：姿态误差复位雅可比 G = I - 0.5[δθ×] 在小修正量下近似为 I，此处省略。
 }
 
@@ -157,6 +171,26 @@ UpdateResult Eskf::updatePosition(const PositionFix& z, const NavState& ref) {
   Mat<2, 2> R;
   R(0, 0) = R(1, 1) = z.sigma_ne * z.sigma_ne;
   return update<2>(r, H, R, cfg_.gate_pos);
+}
+
+bool Eskf::positionInnovation(const PositionFix& z, const NavState& ref, Vec2& r, Mat<2, 2>& S) const {
+  const Vec3 d = earth::llaDiffToNed(ref.lat, ref.h, z.lat - ref.lat, z.lon - ref.lon, z.h - ref.h);
+  r[0] = d[0];
+  r[1] = d[1];
+  S(0, 0) = P_(0, 0) + z.sigma_ne * z.sigma_ne;
+  S(1, 1) = P_(1, 1) + z.sigma_ne * z.sigma_ne;
+  S(0, 1) = S(1, 0) = P_(0, 1);
+  return true;
+}
+
+void Eskf::inflateKinematic(real lambda) {
+  if (lambda <= 1) return;
+  const real s = std::sqrt(lambda);
+  for (std::size_t r = 0; r < kN; ++r)
+    for (std::size_t c = 0; c < kN; ++c) {
+      const real dr = r < idx::BG ? s : 1.0, dc = c < idx::BG ? s : 1.0;
+      P_(r, c) *= dr * dc;
+    }
 }
 
 UpdateResult Eskf::updateVoVelocity(const VoVelocity& z, const NavState& ref) {
@@ -212,6 +246,21 @@ UpdateResult Eskf::updateHeading(const MagHeading& z, const NavState& ref) {
   H(0, idx::MB) = 1;
   Mat<1, 1> R;
   R[0] = z.sigma * z.sigma;
+  return update<1>(r, H, R, cfg_.gate_1d);
+}
+
+UpdateResult Eskf::updateFixHeading(real yaw, real sigma, const NavState& ref) {
+  const Mat3 C = ref.q.toDcm();
+  const real d = C(0, 0) * C(0, 0) + C(1, 0) * C(1, 0);
+  if (d < 1e-6) return {};
+  Mat<1, 1> r;
+  r[0] = wrapPi(yaw - std::atan2(C(1, 0), C(0, 0)));
+  Mat<1, kN> H;
+  H(0, idx::TH) = -C(0, 0) * C(2, 0) / d;
+  H(0, idx::TH + 1) = -C(1, 0) * C(2, 0) / d;
+  H(0, idx::TH + 2) = 1;
+  Mat<1, 1> R;
+  R[0] = sigma * sigma;
   return update<1>(r, H, R, cfg_.gate_1d);
 }
 

@@ -35,12 +35,18 @@ struct EskfConfig {
   real accel_bias_rw = 2e-5;                // m/s^2/sqrt(s)
   real wind_sigma = 5.0, wind_tau = 600.0;  // 风：一阶马尔可夫
   real baro_sigma = 30.0, baro_tau = 1800.0;
-  real vo_scale_rw = 1e-5;                  // 1/sqrt(s)
+  real vo_scale_rw = 1e-5;                  // 1/sqrt(s)，vo_scale_tau <= 0 时按随机游走建模
+  real vo_scale_sigma = 0.005, vo_scale_tau = 0;  // vo_scale_tau > 0 时按一阶马尔可夫建模（地表类型变化引起的时变尺度）
   real mag_bias_sigma = 2.0 * kDeg, mag_bias_tau = 3600.0;  // 磁航向偏差（时间相关，不能当白噪声）
   real cov_period = 0.01;                   // 协方差传播周期 s（100 Hz）
   real gate_pos = 13.8;                     // χ²(2) 99.9%
   real gate_1d = 10.8;                      // χ²(1) 99.9%
   real gate_3d = 16.3;                      // χ²(3) 99.9%
+  // 时间相关误差是否作为状态估计。关闭时该状态的协方差恒为 0，等价于把对应误差当作白噪声处理
+  // （用于对比实验：未建模的时间相关误差会使滤波器过度自信，见 docs/experiments.md）
+  bool est_baro_bias = true;
+  bool est_vo_scale = true;
+  bool est_mag_bias = true;
 };
 
 struct InitSigma {
@@ -69,8 +75,21 @@ class Eskf {
   UpdateResult updateAirspeed(const Airspeed& z, const NavState& ref);
   UpdateResult updateBaro(const BaroAlt& z, const NavState& ref);
   UpdateResult updateHeading(const MagHeading& z, const NavState& ref);
+  // 景象匹配给出的绝对航向（与磁航向不同，不含磁偏差项）
+  UpdateResult updateFixHeading(real yaw, real sigma, const NavState& ref);
   // 雷达高度 + DEM（SITAN 形式）：dem_h 为 ref 位置处地形高，grad_n/grad_e 为地形梯度
   UpdateResult updateRadarAlt(const RadarAlt& z, const NavState& ref, real dem_h, real grad_n, real grad_e);
+
+  // 位置新息及其协方差（不更新），用于门限锁死检测
+  bool positionInnovation(const PositionFix& z, const NavState& ref, Vec2& r, Mat<2, 2>& S) const;
+  // 协方差膨胀：P ← D P D，D 对运动学误差（位置/速度/姿态，0..8）取 sqrt(lambda)，其余取 1。
+  // 保持正定且保留互协方差结构，后续量测更新可经互协方差修正速度与航向。
+  void inflateKinematic(real lambda);
+
+  // 累计注入的误差修正量（各分量之和）。时延量测处理用：历史状态 + (当前累计 − 历史时刻累计)
+  // 近似得到“已包含此后所有修正”的历史状态，避免同一误差被先后两次修正（重复修正）。
+  const StateVec& cumulativeCorrection() const { return cum_dx_; }
+  static void applyCorrection(NavState& x, const StateVec& dx);
 
   const NavState& state() const { return x_; }
   const StateCov& cov() const { return P_; }
@@ -91,6 +110,7 @@ class Eskf {
   Vec3 f_acc_, w_acc_;  // 协方差周期内的平均比力/角速度
   int acc_n_ = 0;
   Vec3 last_gyro_;
+  StateVec cum_dx_;
 };
 
 }  // namespace nav

@@ -65,7 +65,9 @@ nav/
 │   ├── mcu_hal.hpp             MCU 硬件抽象接口（IMU、大气数据、磁、雷达高、相机触发、链路）
 │   ├── mcu_main.cpp            导航 MCU 固件主程序框架（任务划分 + 宿主机桩）
 │   └── companion_main.cpp      Jetson 视觉服务框架（接口 + 瓦片管理 + 匹配质量评估 + 桩）
-├── sim/sim_main.cpp            闭环数字仿真（600 km/h、1 km、商用级 MEMS）
+├── sim/sim_core.{hpp,cpp}      闭环数字仿真核心（全部参数可由 key=value 配置）
+├── sim/sim_main.cpp            单次仿真（nav_sim），可输出逐秒误差/σ/NEES CSV
+├── sim/mc_main.cpp             Monte-Carlo 批量仿真（nav_mc），多线程
 └── tests/test_main.cpp         单元测试
 ```
 
@@ -79,7 +81,11 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build --output-on-failure   # 单元测试 + 闭环仿真回归
 ./build/nav_sim 1200 1                        # 仿真 20 分钟（200 km），随机种子 1
+./build/nav_sim 1200 1 est_mag_bias=0         # 磁航向偏差按白噪声处理 → 门限锁死
+./build/nav_mc runs=100 out=mc profile=realistic recovery=1   # Monte-Carlo
 ```
+
+论文对比实验由 `tools/experiments.py` 批量运行，图像级视觉管线在仓库根目录 `vision/`（Python），见 [实验记录](experiments.md)。
 
 ---
 
@@ -154,12 +160,28 @@ ctest --test-dir build --output-on-failure   # 单元测试 + 闭环仿真回归
 
 ### 3.5 时延量测处理（`state_history.hpp`）
 
-- NavTask 以 100 Hz 将名义状态压入 256 深度的环形缓冲（可回溯 2.56 s）。
-- 量测到达时按其曝光时刻取最近的历史状态，在该状态上计算新息和雅可比，修正量作用于当前状态。
-- 对 250 ms 时延的景象匹配，近似误差来自这段时间内误差状态的变化，量级为 速度误差 × 0.25 s（< 1 m），可忽略。
-- 升级路径：若需更严格处理，改为随机克隆（Stochastic Cloning）：曝光时刻把位置/姿态克隆进状态向量，量测到达后对克隆状态更新。
+- NavTask 以 100 Hz 将名义状态及“累计注入修正量”压入 256 深度的环形缓冲（可回溯 2.56 s）。
+- 量测到达时按其曝光时刻取最近的历史状态，**再叠加此后已注入的修正量**（当前累计 − 历史时刻累计），
+  在该状态上计算新息和雅可比，修正量作用于当前状态。叠加修正量避免了同一误差先被后到的量测（VO、
+  上一次修正）修正、又被时延量测再修正一次（`NavCoreConfig::delay_apply_corrections`，默认开启）。
+- 同一次景象匹配给出的航向在位置更新之后重新取参考状态再更新。
+- 升级路径：随机克隆（Stochastic Cloning），曝光时刻把位置/姿态克隆进状态向量。
 
-### 3.6 模式管理（`nav_core.cpp`）
+### 3.6 时间相关误差建模开关与门限锁死恢复
+
+`EskfConfig::est_baro_bias / est_vo_scale / est_mag_bias` 可关闭对应偏差状态（协方差恒为 0，即按白噪声处理），
+`vo_scale_tau > 0` 时 VO 尺度改用一阶马尔可夫模型。这些开关用于对比实验，见 [实验记录](experiments.md)。
+
+**门限锁死（gate lockout）**：时间相关误差未建模或模型失配时，修正间隙内协方差被高频辅助量测压得过小，
+下一次正确的绝对修正因 χ² 超限被拒，此后协方差继续偏小，形成自锁发散。`LockoutRecoveryConfig`：
+
+1. 记录连续被拒的绝对修正的新息；
+2. 最近 K 次（默认 2）新息两两一致（差值在量测噪声 + 漂移率上界 × Δt 内，χ²(2) 99%）时，判定被拒的是滤波器
+   而不是量测（独立的错误匹配之间一般不一致）；
+3. 按最新新息把运动学误差协方差（位置/速度/姿态）放大 λ 倍、互协方差放大 √λ 倍（P ← DPD，保持正定），
+   使该新息 NIS ≈ 2，然后重新执行该次更新。
+
+### 3.7 模式管理（`nav_core.cpp`）
 
 | 模式 | 进入条件 | 输出 health 位 |
 |---|---|---|
@@ -169,7 +191,7 @@ ctest --test-dir build --output-on-failure   # 单元测试 + 闭环仿真回归
 | M3 推算 | 30 s 内无任何绝对修正 | `VO_LOST`（若 VO 也中断） |
 | M4 重捕获 | 水平 1σ > 300 m | `COV_LARGE`，Jetson 收到后扩大搜索窗口 |
 
-### 3.7 30 Hz 输出
+### 3.8 30 Hz 输出
 
 - `NavCore::onImu` 内按输出周期（33.3 ms）生成 `NavOutput`，与量测到达完全解耦。
 - 输出包含：经纬高、NED 速度、欧拉角、去零偏角速度、水平/垂直 1σ、模式、健康字。

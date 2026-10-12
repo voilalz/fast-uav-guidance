@@ -24,13 +24,39 @@ enum HealthBits : std::uint8_t {
   kHealthCovLarge = 1 << 3,
 };
 
+// 门限锁死（gate lockout）检测与恢复。
+// 现象：时间相关误差未建模或建模不足时，滤波器协方差在修正间隙中被高频辅助量测压小，
+// 下一次正确的绝对修正因新息超出 χ² 门限被拒，此后协方差继续偏小，形成自锁发散。
+// 判据：连续 K 次被拒的绝对修正，其新息彼此一致（差值在量测噪声 + 漂移率上界内），
+// 说明被拒的是滤波器自身而不是量测（独立的错误匹配之间通常不一致）。
+// 恢复：按最新新息把运动学误差协方差放大到 NIS ≈ 量测维数，再重新执行该次更新。
+struct LockoutRecoveryConfig {
+  bool enable = false;
+  int consecutive = 2;          // 连续被拒且相互一致的次数 K
+  real window_s = 150.0;        // 两次被拒修正的最大间隔
+  real drift_rate = 2.0;        // 修正间隙内导航误差变化率上界（1σ）m/s
+  real consistency_gate = 9.21; // χ²(2) 99%
+};
+
+struct FixEvent {
+  TimeUs t_us = 0;
+  FixSource source = FixSource::kSceneMatch;
+  real nis = 0;
+  bool accepted = false;
+  bool recovered = false;  // 经锁死恢复后被接受
+};
+
 struct NavCoreConfig {
   real output_rate_hz = 30.0;
   real history_rate_hz = 100.0;
   real fix_timeout_s = 30.0;      // 超过此时间无绝对修正 -> M3
   real reacquire_sigma_m = 300.0; // 水平 1σ 超过此值 -> M4
   real vo_timeout_s = 1.0;
+  // 时延量测参考状态：false 为量测时刻的历史名义状态（原实现）；
+  // true 为历史名义状态叠加此后已注入的修正量（避免重复修正，推荐）
+  bool delay_apply_corrections = true;
   EskfConfig eskf;
+  LockoutRecoveryConfig recovery;
 };
 
 struct MeasurementStats {
@@ -60,15 +86,23 @@ class NavCore {
   NavMode mode() const { return mode_; }
   const Eskf& filter() const { return eskf_; }
   const MeasurementStats& fixStats() const { return fix_stats_; }
+  const FixEvent& lastFixEvent() const { return last_event_; }
+  std::uint32_t recoveries() const { return recoveries_; }
 
  private:
   bool ref(TimeUs t, NavState& out, MeasurementStats& st) const;
+  bool tryRecover(const PositionFix& z, const NavState& r, UpdateResult& u);
   void updateMode(TimeUs now);
   NavOutput makeOutput() const;
 
   NavCoreConfig cfg_;
   Eskf eskf_;
-  StateHistory<256> hist_;  // 100 Hz × 2.56 s
+  struct HistEntry {
+    TimeUs t_us = 0;
+    NavState x;
+    StateVec cum;  // 该时刻的累计修正量
+  };
+  StateHistory<256, HistEntry> hist_;  // 100 Hz × 2.56 s
   TimeUs last_imu_ = 0, next_out_ = 0, next_hist_ = 0;
   TimeUs last_fix_ = 0, last_scene_fix_ = 0, last_vo_ = 0;
   NavMode mode_ = NavMode::kDeadReckon;
@@ -78,6 +112,13 @@ class NavCore {
   Dem dem_;
   real dem_lat0_ = 0, dem_lon0_ = 0;
   MeasurementStats fix_stats_, aux_stats_;
+  FixEvent last_event_;
+  // 最近一串连续被拒的修正（用于一致性判据）
+  struct Rejected { TimeUs t_us; Vec2 r; real sigma; };
+  static constexpr int kMaxRejected = 8;
+  Rejected rej_[kMaxRejected];
+  int n_rej_ = 0;
+  std::uint32_t recoveries_ = 0;
 };
 
 }  // namespace nav

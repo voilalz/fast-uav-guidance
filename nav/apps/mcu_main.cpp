@@ -130,6 +130,7 @@ class NavApp {
       m.fix.h = f.alt_m;
       m.fix.sigma_ne = f.sigma_ne_m;
       m.fix.sigma_d = f.sigma_d_m;
+      m.fix.yaw = f.yaw_rad;
       m.fix.source = static_cast<FixSource>(f.source);
       meas_q_.push(m);
     }

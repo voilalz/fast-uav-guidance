@@ -7,20 +7,21 @@
 
 namespace nav {
 
-template <std::size_t Capacity>
+// Entry 需含 t_us 成员；默认直接存名义状态。
+template <std::size_t Capacity, class Entry = NavState>
 class StateHistory {
  public:
-  void push(const NavState& s) {
+  void push(const Entry& s) {
     buf_[head_] = s;
     head_ = (head_ + 1) % Capacity;
     if (size_ < Capacity) ++size_;
   }
 
   // 取时间上最接近 t_us 的历史状态；超出缓冲范围返回 false
-  bool lookup(TimeUs t_us, NavState& out) const {
+  bool lookup(TimeUs t_us, Entry& out) const {
     if (size_ == 0) return false;
-    const NavState& newest = at(size_ - 1);
-    const NavState& oldest = at(0);
+    const Entry& newest = at(size_ - 1);
+    const Entry& oldest = at(0);
     if (t_us > newest.t_us + kTolUs || t_us + kTolUs < oldest.t_us) return false;
     std::size_t best = 0;
     TimeUs best_d = ~TimeUs{0};
@@ -38,9 +39,9 @@ class StateHistory {
  private:
   static constexpr TimeUs kTolUs = 20000;
   // i = 0 为最旧
-  const NavState& at(std::size_t i) const { return buf_[(head_ + Capacity - size_ + i) % Capacity]; }
+  const Entry& at(std::size_t i) const { return buf_[(head_ + Capacity - size_ + i) % Capacity]; }
 
-  NavState buf_[Capacity];
+  Entry buf_[Capacity];
   std::size_t head_ = 0, size_ = 0;
 };
 
