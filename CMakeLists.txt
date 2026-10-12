@@ -12,7 +12,7 @@ endif()
 
 enable_testing()
 
-foreach(dir nav drivers companion sim tools/maplib)
+foreach(dir nav drivers companion sim tools/maplib vision demo)
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${dir}/CMakeLists.txt)
     add_subdirectory(${dir})
   endif()

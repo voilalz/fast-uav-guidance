@@ -1,45 +1,33 @@
 {
  "radar": {
-  "frames_ok_pct": 99.2081447963801,
-  "scale_err_mean_pct": -1.3565528953254071,
-  "scale_err_std_pct": 2.9576724969742685,
-  "scale_err_1s_std_pct": 2.2792673492964592,
-  "scale_corr_length_m": 205.55555555555554,
-  "scale_corr_time_s": 1.2333333333333334,
-  "vb_err_rms": [
-   5.100994506607855,
-   3.1651829914654814,
-   58.49920641040855
-  ],
-  "reported_sigma_median": 1.7380320244013983
+  "frames_ok_pct": 98.9819,
+  "scale_err_mean_pct": -1.1051,
+  "scale_err_std_pct": 2.8871,
+  "scale_err_1s_std_pct": 2.1799,
+  "scale_corr_length_m": 211.11,
+  "scale_corr_time_s": 1.2667,
+  "vb_err_rms": [5.0164, 3.4317, 59.7413],
+  "reported_sigma_median": 1.7397
  },
  "dem_mean": {
-  "frames_ok_pct": 99.2081447963801,
-  "scale_err_mean_pct": -0.651666115415502,
-  "scale_err_std_pct": 2.1991390004714084,
-  "scale_err_1s_std_pct": 1.8070634960148677,
-  "scale_corr_length_m": 205.55555555555554,
-  "scale_corr_time_s": 1.2333333333333334,
-  "vb_err_rms": [
-   3.431053709175708,
-   1.67719840935976,
-   19.265404019939112
-  ],
-  "reported_sigma_median": 1.6931936429076286
+  "frames_ok_pct": 98.9819,
+  "scale_err_mean_pct": -0.4880,
+  "scale_err_std_pct": 2.0679,
+  "scale_err_1s_std_pct": 1.6324,
+  "scale_corr_length_m": 177.78,
+  "scale_corr_time_s": 1.0667,
+  "vb_err_rms": [3.2775, 1.6954, 19.8501],
+  "reported_sigma_median": 1.6928
  },
  "dem_ray": {
-  "frames_ok_pct": 99.2081447963801,
-  "scale_err_mean_pct": 0.6442821395884751,
-  "scale_err_std_pct": 0.8840847692221533,
-  "scale_err_1s_std_pct": 0.5322651670139099,
-  "scale_corr_length_m": 261.1111111111111,
-  "scale_corr_time_s": 1.5666666666666667,
-  "vb_err_rms": [
-   1.824764664122891,
-   1.1964159703721176,
-   0.48416178529204895
-  ],
-  "reported_sigma_median": 1.6911864691792853
+  "frames_ok_pct": 98.9819,
+  "scale_err_mean_pct": 0.5044,
+  "scale_err_std_pct": 0.7240,
+  "scale_err_1s_std_pct": 0.2065,
+  "scale_corr_length_m": 177.78,
+  "scale_corr_time_s": 1.0667,
+  "vb_err_rms": [1.4696, 1.1655, 0.3744],
+  "reported_sigma_median": 1.6877
  },
- "terrain_relief_m": 157.8268585205078
+ "terrain_relief_m": 157.827
 }
