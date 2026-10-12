@@ -1,0 +1,10 @@
+# 论文 demo：图像在环的闭环导航仿真（导航核心 + 真实影像景象匹配），需要 vision 库（OpenCV）。
+if(NOT TARGET vision OR NOT TARGET navsim)
+  message(STATUS "demo: 缺少 vision 或 navsim，跳过 nav_demo")
+  return()
+endif()
+find_package(Threads REQUIRED)
+add_executable(nav_demo nav_demo.cpp)
+target_link_libraries(nav_demo navsim vision Threads::Threads)
+target_include_directories(nav_demo PRIVATE ${CMAKE_SOURCE_DIR}/nav/sim)
+target_compile_options(nav_demo PRIVATE -Wall -Wextra)

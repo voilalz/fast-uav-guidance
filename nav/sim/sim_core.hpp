@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -65,6 +66,7 @@ struct SimConfig {
   bool recovery = false;
   int recovery_k = 2;
   real recovery_drift_rate = 2.0;
+  real recovery_min_sep = 0;  // 被拒修正计为独立证据的最小间隔 s
 };
 
 // 设置参数，未知 key 返回 false。profile=realistic 一次性启用更真实的误差模型。
@@ -75,6 +77,7 @@ std::string describe(const SimConfig& c);
 struct Sample {  // 每秒一个
   real t, err_n, err_e, err_d, err_h, sigma_ne, nees_pos, nees_kin;
   int mode;
+  real lat, lon, est_lat, est_lon;  // 真值与估计位置（rad），用于绘制轨迹
 };
 
 struct FixRecord {
@@ -82,7 +85,8 @@ struct FixRecord {
   int source;     // 1 景象匹配 2 三维地形
   bool outlier;   // 仿真注入的错误匹配
   bool accepted, recovered;
-  real nis, innov;  // NIS 与水平误差大小（真值 − 量测，m）
+  real nis, innov;  // NIS 与量测误差大小（量测 − 量测时刻真值，水平 m）
+  real lat, lon, truth_lat, truth_lon;  // 量测位置与量测时刻真值位置（rad）
 };
 
 struct Result {
@@ -102,6 +106,17 @@ struct Result {
 
 struct Scenario {
   bool vo = true, fixes = true, airspeed = true, heading = true;
+
+  // 初始真值（默认即原有场景）
+  real lat0 = 30.0 * nav::kDeg, lon0 = 110.0 * nav::kDeg, h0 = 1500.0, yaw0 = 45.0 * nav::kDeg;
+  // 可选：真值航向角速度 rad/s（输入时间与当前真值），用于制导律驱动的航线；为空时用内置三次转弯剖面
+  std::function<real(real t, const nav::NavState& truth)> yaw_rate;
+  // 可选：景象匹配量测提供者（如图像在环的真实匹配器），按 fix_interval 调用。
+  // 输入真值、导航当前估计及其水平 1σ；返回 false 表示本帧无量测。outlier 仅用于统计（是否为错误匹配）。
+  // 设置后取代内置的统计量测模型（含 gap 与 outlier_rate）。
+  std::function<bool(real t, const nav::NavState& truth, const nav::NavState& est, real sigma_ne,
+                     nav::PositionFix& z, bool& outlier)>
+      fix_provider;
 };
 
 Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose);

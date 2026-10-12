@@ -82,6 +82,8 @@ bool NavCore::tryRecover(const PositionFix& z, const NavState& r, UpdateResult& 
   const LockoutRecoveryConfig& rc = cfg_.recovery;
   // 超出时间窗口的旧记录作废
   if (n_rej_ > 0 && (z.t_us - rej_[n_rej_ - 1].t_us) * 1e-6 > rc.window_s) n_rej_ = 0;
+  // 与上一条被拒记录视场重叠：不是独立证据，不记录
+  if (n_rej_ > 0 && (z.t_us - rej_[n_rej_ - 1].t_us) * 1e-6 < rc.min_separation_s) return false;
   if (n_rej_ == kMaxRejected) {
     for (int i = 1; i < kMaxRejected; ++i) rej_[i - 1] = rej_[i];
     --n_rej_;
