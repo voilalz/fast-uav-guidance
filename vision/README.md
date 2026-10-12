@@ -12,7 +12,7 @@
 | `include/vision/geo_map.hpp` | 局部地图网格（两期正射灰度影像 + 掩膜 + DEM）及其二进制文件格式 |
 | `include/vision/camera.hpp` | 下视针孔相机、射线–DEM 求交、投影、带地形视差的实时图渲染 |
 | `include/vision/vo.hpp` | 下视单目 VO：LK 光流 + 姿态去旋转 + 地面求交，三种尺度来源（雷达高 / 气压−DEM / 逐点 DEM 射线） |
-| `include/vision/scene_match.hpp` | 景象匹配：DEM 正射校正 → 掩膜 NCC 粗匹配（PSR、歧义比）→ SIFT + RANSAC 相似变换精化 → 量测 σ |
+| `include/vision/scene_match.hpp` | 景象匹配：DEM 正射校正 → 掩膜 NCC 粗匹配（PSR、歧义比；搜索半径 > 250 m 时由粗到精）→ SIFT + RANSAC 相似变换精化 → 量测 σ |
 | `apps/build_map.cpp` | `vision_build_map`：用 GDAL 把 SpaceNet 8 瓦片与 Copernicus DEM 重投影到同一 UTM 网格 |
 | `apps/eval_scene_match.cpp` | `vision_eval_scene_match`：300 帧随机位姿评估（同源 / 跨时相 / 梯度预处理 / 平地正射 / 大先验误差） |
 | `apps/eval_vo.cpp` | `vision_eval_vo`：沿河谷定高直线飞行 600 km/h、30 Hz，评估 VO 尺度误差及其相关长度 |
@@ -28,6 +28,12 @@ build/vision/vision_build_map data                   # 生成 data/ahr_0.50m.map
 build/vision/vision_eval_scene_match trials=300 out=results/vision
 build/vision/vision_eval_vo out=results/vision
 python3 tools/plot_vision.py results/vision          # 绘图（matplotlib）
+
+# 第二个区域：Louisiana（约 5.5 km × 14.6 km，平原城郊 + 湿地，供 demo 评估大搜索窗）
+tools/download_data.sh data/la la                    # 约 1 GB
+build/vision/vision_build_map data/la gsd=1 epsg=32615 out=data/la/la_1.00m.map   # 约 580 MB
+build/vision/vision_eval_scene_match map=data/la/la_1.00m.map trials=150 out=results/vision_la \
+    cases=cross_time,cross_time_prior150,cross_time_prior150_nopyr,cross_time_prior400,cross_time_prior400_nopyr
 ```
 
 ## 数据说明

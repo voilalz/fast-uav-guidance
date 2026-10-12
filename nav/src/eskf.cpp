@@ -193,6 +193,12 @@ void Eskf::inflateKinematic(real lambda) {
     }
 }
 
+void Eskf::addHorizontalVariance(real var) {
+  if (var <= 0) return;
+  P_(0, 0) += var;
+  P_(1, 1) += var;
+}
+
 UpdateResult Eskf::updateVoVelocity(const VoVelocity& z, const NavState& ref) {
   const Mat3 Ct = ref.q.toDcm().t();
   const real s = 1.0 + ref.vo_scale;

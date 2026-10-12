@@ -4,3 +4,4 @@ data/
 results/raw/
 __pycache__/
 results/demo/demo_series.csv
+results/demo_la/demo_series.csv

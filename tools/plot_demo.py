@@ -17,11 +17,18 @@ import numpy as np  # noqa: E402
 sys.path.insert(0, os.path.dirname(__file__))
 from experiments import C, INK2, style  # noqa: E402
 
-VARIANTS = ("original", "original_recovery_sep", "matched", "matched_recovery", "matched_recovery_sep")
-LABEL = {"original": "原模型", "original_recovery_sep": "原模型 + 恢复（间隔 3 s）", "matched": "匹配模型",
-         "matched_recovery": "匹配模型 + 恢复（K=2）", "matched_recovery_sep": "匹配模型 + 恢复（间隔 3 s）"}
-COLOR = {"original": C[1], "original_recovery_sep": C[4], "matched": C[3], "matched_recovery": C[2],
-         "matched_recovery_sep": C[0]}
+VARIANTS = ("original", "original_recovery_sep", "original_window", "original_recovery_sep_window", "matched",
+            "matched_recovery", "matched_recovery_sep", "matched_recovery_sep_window", "original_floor",
+            "original_recovery_sep_floor", "matched_recovery_sep_floor")
+LABEL = {"original": "原模型", "original_recovery_sep": "原模型 + 恢复（间隔 3 s）",
+         "original_window": "原模型 + 窗口下限", "original_recovery_sep_window": "原模型 + 恢复 + 窗口下限",
+         "matched": "匹配模型", "matched_recovery": "匹配模型 + 恢复（K=2）",
+         "matched_recovery_sep": "匹配模型 + 恢复（间隔 3 s）", "matched_recovery_sep_window": "匹配模型 + 恢复 + 窗口下限",
+         "original_floor": "原模型 + 协方差下限", "original_recovery_sep_floor": "原模型 + 恢复 + 协方差下限",
+         "matched_recovery_sep_floor": "匹配模型 + 恢复 + 协方差下限"}
+COLOR = {"original": C[1], "original_recovery_sep": C[4], "original_window": C[4], "original_recovery_sep_window": C[2],
+         "matched": C[3], "matched_recovery": C[2], "matched_recovery_sep": C[0], "matched_recovery_sep_window": C[3],
+         "original_floor": C[5], "original_recovery_sep_floor": C[2], "matched_recovery_sep_floor": C[3]}
 
 
 def load(path):
@@ -89,7 +96,8 @@ def summary(runs, fixes, prefix):
 
 def plot_track(series, fixes, out, map_path, seed):
     fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(9, 7), gridspec_kw={"width_ratios": [1.25, 1]})
-    vs = [v for v in ("original", "matched_recovery_sep") if any(r["variant"] == v for r in series)]
+    vs = [v for v in ("original", "original_floor", "matched_recovery_sep")
+          if any(r["variant"] == v for r in series)]
     truth = [r for r in series if r["variant"] == vs[0] and r["seed"] == seed]
     for ax in (ax0, ax1):
         ax.plot([r["e_true"] / 1000 for r in truth], [r["n_true"] / 1000 for r in truth], color=INK2, lw=1.0,
@@ -134,7 +142,13 @@ def plot_track(series, fixes, out, map_path, seed):
 def plot_error(series, fixes, out):
     fig, ax = plt.subplots(figsize=(8, 3.6))
     # “匹配模型”与“匹配模型 + 恢复（间隔 3 s）”结果相同（恢复从未触发），只画后者
-    vs = [v for v in ("original", "matched_recovery", "matched_recovery_sep") if any(r["variant"] == v for r in series)]
+    if any(r["variant"].endswith("_window") for r in series):
+        pick = ("original", "original_window", "original_floor", "matched_recovery_sep")
+    elif any(r["variant"].endswith("_floor") for r in series):
+        pick = ("original", "original_floor", "matched_recovery_sep", "matched_recovery_sep_floor")
+    else:
+        pick = ("original", "matched_recovery", "matched_recovery_sep")
+    vs = [v for v in pick if any(r["variant"] == v for r in series)]
     for v in vs:
         rows = [r for r in series if r["variant"] == v]
         ts = sorted({r["t"] for r in rows})
@@ -161,7 +175,7 @@ def plot_error(series, fixes, out):
     ax.set_yscale("log")
     ax.set_xlabel("时间 / s")
     ax.set_ylabel("水平位置误差 / m")
-    ax.legend(fontsize=7, ncol=2)
+    ax.legend(fontsize=7, ncol=2, loc="upper left")
     fig.tight_layout()
     fig.savefig(os.path.join(out, "fig_demo_error.png"))
     plt.close(fig)

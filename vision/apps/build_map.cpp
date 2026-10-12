@@ -1,7 +1,8 @@
 // 把公开数据重投影到同一局部 UTM 网格，生成 GeoMap 二进制文件。
 //
 //   tools/download_data.sh data                       # 下载 SpaceNet 8 瓦片与 Copernicus DEM
-//   vision_build_map data [gsd=0.5] [out=data/ahr_0.50m.map]
+//   vision_build_map data [gsd=0.5] [epsg=32632] [out=data/ahr_0.50m.map]
+//   vision_build_map data/la gsd=1 epsg=32615 out=data/la/la_1.00m.map    # Louisiana 区域
 //
 // 数据（不随仓库分发）：
 //   * SpaceNet 8（CC BY-SA 4.0）：德国 Ahr 河谷（森林山地 + 城镇）同一地区两期 Maxar 影像，
@@ -47,25 +48,42 @@ OGRSpatialReference utm(int epsg) {
   return s;
 }
 
+// 数据集外包框在目标坐标系下的范围 (left, bottom, right, top)
+void boundsIn(GDALDataset* d, const OGRSpatialReference& dst, double& l, double& b, double& r, double& t) {
+  double gt[6];
+  d->GetGeoTransform(gt);
+  OGRSpatialReference src(*d->GetSpatialRef());
+  src.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+  OGRCoordinateTransformation* ct = OGRCreateCoordinateTransformation(&src, &dst);
+  const double x0 = gt[0], y1 = gt[3], x1 = gt[0] + gt[1] * d->GetRasterXSize(),
+               y0 = gt[3] + gt[5] * d->GetRasterYSize();
+  ct->TransformBounds(x0, y0, x1, y1, &l, &b, &r, &t, 21);
+  OGRCoordinateTransformation::DestroyCT(ct);
+}
+
 Grid gridFor(const std::vector<std::string>& files, double gsd, int epsg) {
   double left = 1e300, bottom = 1e300, right = -1e300, top = -1e300;
   const OGRSpatialReference dst = utm(epsg);
   for (const auto& f : files) {
     GDALDataset* d = static_cast<GDALDataset*>(GDALOpen(f.c_str(), GA_ReadOnly));
-    double gt[6];
-    d->GetGeoTransform(gt);
-    OGRSpatialReference src(*d->GetSpatialRef());
-    src.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-    OGRCoordinateTransformation* ct = OGRCreateCoordinateTransformation(&src, &dst);
-    const double x0 = gt[0], y1 = gt[3], x1 = gt[0] + gt[1] * d->GetRasterXSize(),
-                 y0 = gt[3] + gt[5] * d->GetRasterYSize();
     double l, b, r, t;
-    ct->TransformBounds(x0, y0, x1, y1, &l, &b, &r, &t, 21);
+    boundsIn(d, dst, l, b, r, t);
     left = std::min(left, l), bottom = std::min(bottom, b), right = std::max(right, r), top = std::max(top, t);
-    OGRCoordinateTransformation::DestroyCT(ct);
     GDALClose(d);
   }
   return {left, top, gsd, static_cast<int>((right - left) / gsd), static_cast<int>((top - bottom) / gsd)};
+}
+
+// 网格中覆盖数据集的像素窗口（子网格与原网格像素对齐）
+cv::Rect windowFor(GDALDataset* d, const Grid& g, int epsg, Grid& sub) {
+  double l, b, r, t;
+  boundsIn(d, utm(epsg), l, b, r, t);
+  const int c0 = std::max(0, static_cast<int>(std::floor((l - g.x0) / g.gsd)) - 2);
+  const int r0 = std::max(0, static_cast<int>(std::floor((g.y0 - t) / g.gsd)) - 2);
+  const int c1 = std::min(g.w, static_cast<int>(std::ceil((r - g.x0) / g.gsd)) + 2);
+  const int r1 = std::min(g.h, static_cast<int>(std::ceil((g.y0 - b) / g.gsd)) + 2);
+  sub = {g.x0 + c0 * g.gsd, g.y0 - r0 * g.gsd, g.gsd, std::max(0, c1 - c0), std::max(0, r1 - r0)};
+  return {c0, r0, sub.w, sub.h};
 }
 
 GDALDataset* memDataset(const Grid& g, int bands, GDALDataType type, int epsg, double init) {
@@ -127,15 +145,21 @@ void mosaicGray(const std::vector<std::string>& files, const Grid& g, int epsg, 
       gr[i] = 0.299f * rgb[i] + 0.587f * rgb[n + i] + 0.114f * rgb[2 * n + i];
       va[i] = (rgb[i] + rgb[n + i] + rgb[2 * n + i]) > 0 ? 1.f : 0.f;
     }
+    Grid sub;
+    const cv::Rect roi = windowFor(d, g, epsg, sub);  // 只重投影到瓦片覆盖的窗口（大区域时快得多）
+    if (roi.area() == 0) {
+      GDALClose(d);
+      continue;
+    }
     GDALDataset* sg = likeSource(d, gr);
     GDALDataset* sv = likeSource(d, va);
-    GDALDataset* dg = memDataset(g, 1, GDT_Float32, epsg, 0);
-    GDALDataset* dv = memDataset(g, 1, GDT_Float32, epsg, 0);
+    GDALDataset* dg = memDataset(sub, 1, GDT_Float32, epsg, 0);
+    GDALDataset* dv = memDataset(sub, 1, GDT_Float32, epsg, 0);
     warp(sg, dg, {"-r", "bilinear", "-srcnodata", "None", "-dstnodata", "None"});
     warp(sv, dv, {"-r", "near", "-srcnodata", "None", "-dstnodata", "None"});
-    const cv::Mat mg = readBand(dg, g), mv = readBand(dv, g);
-    acc += mg.mul(mv);
-    cnt += mv;
+    const cv::Mat mg = readBand(dg, sub), mv = readBand(dv, sub);
+    acc(roi) += mg.mul(mv);
+    cnt(roi) += mv;
     for (GDALDataset* x : {sg, sv, dg, dv, d}) GDALClose(x);
   }
   cv::Mat img = acc / cv::max(cnt, 1.0);
@@ -168,11 +192,13 @@ cv::Mat demOnGrid(const std::vector<std::string>& files, const Grid& g, int epsg
 int main(int argc, char** argv) {
   std::string data = argc > 1 ? argv[1] : "data";
   double gsd = 0.5;
+  int epsg = 32632;
   std::string out;
   for (int i = 2; i < argc; ++i) {
     const std::string a = argv[i];
     if (a.rfind("gsd=", 0) == 0) gsd = std::stod(a.substr(4));
     if (a.rfind("out=", 0) == 0) out = a.substr(4);
+    if (a.rfind("epsg=", 0) == 0) epsg = std::stoi(a.substr(5));
   }
   if (out.empty()) {
     char buf[64];
@@ -187,6 +213,7 @@ int main(int argc, char** argv) {
     return 1;
   }
   vision::GeoMap map;
+  map.epsg = epsg;
   const Grid g = gridFor(pre_f, gsd, map.epsg);
   map.x0 = g.x0;
   map.y0 = g.y0;

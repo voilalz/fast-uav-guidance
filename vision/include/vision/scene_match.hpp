@@ -27,6 +27,13 @@ struct MatchConfig {
   double min_ambiguity = 1.02;  // 主峰 / 次峰（NCC 映射到正数后之比）
   double min_psr = 4.0;
   double min_valid = 0.6;  // 模板内有效像素比例下限
+  // 由粗到精：搜索半径超过 pyramid_above_m 时，先在 pyramid_factor 倍降采样的图上全窗口搜索，
+  // 取前 pyramid_candidates 个候选峰，再在每个候选附近 ±pyramid_refine_m 做全分辨率 NCC；
+  // 歧义比取最佳候选与次佳候选（或其局部次峰）之比，保持全窗口的歧义检验
+  int pyramid_factor = 4;
+  double pyramid_above_m = 250.0;
+  int pyramid_candidates = 3;
+  double pyramid_refine_m = 60.0;
 };
 
 struct MatchResult {
@@ -58,6 +65,15 @@ class SceneMatcher {
   const MatchConfig& config() const { return cfg_; }
 
  private:
+  struct Peak {  // 一次 NCC 搜索的结果
+    double c1 = -1, c2 = -1, psr = 0;
+    double n = 0, e = 0;  // 模板中心（= 相机天底点）匹配到的地面位置
+    cv::Mat ref;          // 参考裁剪（精匹配用）
+    int r0 = 0, c0 = 0;
+  };
+  // 以 (n, e) 为中心、搜索半径 search_m 的全分辨率 NCC；失败时返回 false 并给出原因
+  bool ncc(const cv::Mat& tpl, const cv::Mat& tm, double n, double e, double search_m, Peak& out,
+           std::string& fail) const;
   void refCrop(double n, double e, double half_m, cv::Mat& out, int& r0, int& c0) const;
   bool fine(const cv::Mat& ortho, const cv::Mat& om, const cv::Mat& ref, int r0, int c0, double n0, double e0,
             double dn, double de, double out[4]);

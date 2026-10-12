@@ -237,6 +237,38 @@ static void testLockoutRecovery() {
   CHECK(e3.accepted && e3.recovered);
 }
 
+// 协方差下限：距上次被接受修正 30 s、下限 2 m/s 时水平 σ 被放大到 60 m，随后 150 m 新息的修正被接受
+static void testSigmaFloor() {
+  NavCoreConfig cfg;
+  cfg.recovery.sigma_floor_rate = 2.0;
+  NavCore core(cfg);
+  NavState x;
+  x.lat = 30 * kDeg;
+  x.h = 1000;
+  core.init(x, InitSigma{});
+  ImuSample imu;
+  imu.accel = vec3(0, 0, -earth::gravity(x.lat, x.h));
+  NavOutput out;
+  auto fix = [&](real north_m) {
+    PositionFix z;
+    z.t_us = imu.t_us;
+    z.lat = x.lat + north_m / earth::radii(x.lat).rn;
+    z.lon = x.lon;
+    z.h = x.h;
+    z.sigma_ne = 5;
+    core.onPositionFix(z);
+    return core.lastFixEvent();
+  };
+  for (int i = 0; i < 400; ++i) { imu.t_us += 2500; core.onImu(imu, out); }
+  CHECK(fix(0).accepted);
+  for (int i = 0; i < 400 * 30; ++i) { imu.t_us += 2500; core.onImu(imu, out); }
+  CHECK(core.filter().sigmaNe() < 50);
+  core.applySigmaFloor(imu.t_us);
+  CHECK(std::fabs(core.filter().sigmaNe() - 60) < 0.5);
+  const FixEvent e = fix(150);  // 无下限时 150 m 新息远超门限
+  CHECK(e.accepted && !e.recovered);
+}
+
 int main() {
   testMath();
   testStrapdownStatic();
@@ -248,6 +280,7 @@ int main() {
   testDisabledStates();
   testInflate();
   testLockoutRecovery();
+  testSigmaFloor();
   std::printf("%s (%d failures)\n", g_fail ? "FAIL" : "PASS", g_fail);
   return g_fail ? 1 : 0;
 }
