@@ -36,11 +36,16 @@ std::vector<Case> allCases() {
   grad.preprocess = Preprocess::Grad;
   MatchConfig flat;
   flat.use_dem = false;
+  MatchConfig nopyr;  // 关闭由粗到精，单级全分辨率 NCC（对照）
+  nopyr.pyramid_factor = 1;
   return {{"same_source", false, {}, 50},
           {"cross_time", true, {}, 50},
           {"cross_time_grad", true, grad, 50},
           {"cross_time_flat", true, flat, 50},
-          {"cross_time_prior150", true, {}, 150}};
+          {"cross_time_prior150", true, {}, 150},
+          {"cross_time_prior150_nopyr", true, nopyr, 150},
+          {"cross_time_prior400", true, {}, 400},
+          {"cross_time_prior400_nopyr", true, nopyr, 400}};
 }
 
 struct Row {

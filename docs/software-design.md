@@ -190,6 +190,10 @@ ctest --test-dir build --output-on-failure   # 单元测试 + 闭环仿真回归
 相邻关键帧视场重叠时会在同一位置重复出现、彼此“一致”。取 ≥ 视场幅宽 / 地速可以避免把它误判为锁死，
 见 [图像在环 demo](demo.md) 发现 (3)(4)。默认 0 表示不限制，与统计仿真的历史结果一致。
 
+`sigma_floor_rate`（协方差下限）：`applySigmaFloor(now)` 把水平位置方差抬高到 (v_f · 距上次被接受的绝对修正的时间)²，
+只改 P 的两个水平位置对角元，不放大速度与姿态。锁死恢复依赖被拒的修正，而匹配器层锁死时修正根本不会产生，
+下限补上这一缺口。代价是更宽的门限会接受部分错误匹配，并且要求参考库覆盖宽于搜索窗口，见 demo 发现 (5)–(8)。默认 0 不启用。
+
 ### 3.7 模式管理（`nav_core.cpp`）
 
 | 模式 | 进入条件 | 输出 health 位 |
@@ -228,6 +232,10 @@ ctest --test-dir build --output-on-failure   # 单元测试 + 闭环仿真回归
 1. **选关键帧**：清晰度（拉普拉斯方差）、纹理量、可匹配性地图评分。
 2. **正射校正**：用帧时刻的姿态和高度（DSM 辅助）把实时图投影到地面，统一为参考图分辨率和北向朝向。
 3. **加载参考区域**：`TileStore::tilesForWindow` 按先验 3σ 窗口取瓦片（预提取特征已在 SSD 上）。
+   窗口半径取 3σ + 20 m，σ 为 MCU 发布的水平 σ。MCU 发布前调用 `NavCore::applySigmaFloor`，
+   保证 σ ≥ v_f·t_since_fix（`LockoutRecoveryConfig::sigma_floor_rate`，demo 中 2 m/s）：估计 σ 偏小时
+   窗口和 χ² 门限一起放大，避免“搜索窗口锁死”。只放大窗口而不放大协方差无效（见 `docs/demo.md` 第 6 节）。
+   窗口超过 250 m 时先在 4 倍降采样上做 NCC，取前 3 个峰在全分辨率 ±60 m 内精化（`MatchConfig::pyramid_*`）。
 4. **粗匹配**：全局描述子检索或相位相关，得到 Top-K 候选。
 5. **精匹配**：SuperPoint + LightGlue（TensorRT FP16/INT8），RANSAC 单应 / 相似变换，得到位置和航向。
 6. **质量评估**（`gradeMatch`）：内点数、峰值旁瓣比、次优/最优歧义比 → 量测 σ；不合格不上报。

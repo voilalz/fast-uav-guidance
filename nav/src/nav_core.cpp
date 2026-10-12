@@ -55,7 +55,17 @@ bool NavCore::ref(TimeUs t, NavState& out, MeasurementStats& st) const {
   return true;
 }
 
+void NavCore::applySigmaFloor(TimeUs now) {
+  const real rate = cfg_.recovery.sigma_floor_rate;
+  if (rate <= 0) return;
+  const real floor = rate * static_cast<real>(now - last_fix_) * 1e-6;
+  const real s = eskf_.sigmaNe();
+  // 只抬高水平位置方差，不放大速度/姿态：下限针对的是位置漂移量，放大整个运动学块会让随后的修正错误地拉动速度
+  if (floor > s) eskf_.addHorizontalVariance(floor * floor - s * s);
+}
+
 void NavCore::onPositionFix(const PositionFix& z) {
+  applySigmaFloor(last_imu_);
   NavState r;
   if (!ref(z.t_us, r, fix_stats_)) return;
   UpdateResult u = eskf_.updatePosition(z, r);

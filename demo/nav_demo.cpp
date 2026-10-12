@@ -1,7 +1,8 @@
 // 论文 demo：图像在环的闭环导航仿真。
 //
-// 飞机以 600 km/h、离地约 1 km 沿 Ahr 河谷影像条带（0.84 km × 5.43 km）往返飞行，条带两端各延伸 12 km
-// 后按 45° 坡度限制掉头，由航线跟踪制导律重新切入航线。每次飞越条带时，按 1 Hz 关键帧：
+// 飞机以 600 km/h、离地约 1 km 沿地图长边的中线往返飞行（默认 Ahr 河谷条带 0.84 km × 5.43 km；
+// Louisiana 地图 5.5 km × 17 km 用 map=… lat=29.95 lon=-89.95），两端各延伸 12 km 后按 45° 坡度限制掉头，
+// 由航线跟踪制导律重新切入航线。每次飞越地图时，按 1 Hz 关键帧：
 //   1. 用 POST-event 影像（洪水后、不同卫星与时相）在真值位姿渲染机载下视图像；
 //   2. 以导航当前估计位姿与估计 1σ 作先验，用 PRE-event 参考库运行景象匹配（vision::SceneMatcher）；
 //   3. 匹配成功则以 250 ms 时延把位置（及航向）量测送入 NavCore。
@@ -13,8 +14,11 @@
 //   matched           过程噪声与真实误差匹配（VO 尺度一阶马尔可夫、加计零偏随机游走 4e-4）
 //   matched_recovery  matched + 门限锁死检测与协方差恢复（连续 2 次一致的被拒修正即恢复）
 //   matched_recovery_sep  同上，但被拒修正需间隔 ≥ 3 s（视场不重叠）才计为独立证据
+//   *_window          搜索窗口下限：匹配器先验 σ ≥ 2 m/s × 距上次被接受修正的时间（滤波器协方差不变）
+//   *_floor           协方差下限：NavCore 把水平位置 σ 抬高到 2 m/s × 距上次被接受修正的时间（窗口与门限一起放大）
 //
-//   nav_demo [map=data/ahr_0.50m.map] [runs=8] [seed0=1] [threads=4] [out=results/demo/demo]
+//   nav_demo [map=data/ahr_0.50m.map] [lat=50.53 lon=7.05] [max_prior=1000] [runs=8] [seed0=1] [threads=4]
+//            [out=results/demo/demo]
 //            [variants=original,matched,...] [key=value ...]   # 其余 key=value 传给 SimConfig
 // 输出 <out>_runs.csv、<out>_series.csv、<out>_fixes.csv；图由 tools/plot_demo.py 绘制。
 #include <algorithm>
@@ -44,12 +48,16 @@ constexpr real kExtend = 12000.0;  // 条带两端延伸距离 m
 struct Variant {
   std::string name;
   std::vector<std::pair<std::string, std::string>> params;
+  // 匹配搜索窗口下限：先验 σ ≥ window_rate × 距上次被接受修正的时间（m/s）；0 表示只用滤波器 σ
+  real window_rate = 0;
 };
 
 const std::vector<Variant>& allVariants() {
   static const std::vector<Variant> v = {
       {"original", {}},
       {"original_recovery_sep", {{"recovery", "1"}, {"recovery_min_sep", "3"}}},
+      {"original_window", {}, 2.0},
+      {"original_recovery_sep_window", {{"recovery", "1"}, {"recovery_min_sep", "3"}}, 2.0},
       {"matched", {{"filter_vo_scale_sigma", "0.01"}, {"filter_vo_scale_tau", "120"}, {"filter_accel_bias_rw", "4e-4"}}},
       {"matched_recovery",
        {{"filter_vo_scale_sigma", "0.01"}, {"filter_vo_scale_tau", "120"}, {"filter_accel_bias_rw", "4e-4"},
@@ -57,6 +65,15 @@ const std::vector<Variant>& allVariants() {
       {"matched_recovery_sep",
        {{"filter_vo_scale_sigma", "0.01"}, {"filter_vo_scale_tau", "120"}, {"filter_accel_bias_rw", "4e-4"},
         {"recovery", "1"}, {"recovery_min_sep", "3"}}},
+      {"matched_recovery_sep_window",
+       {{"filter_vo_scale_sigma", "0.01"}, {"filter_vo_scale_tau", "120"}, {"filter_accel_bias_rw", "4e-4"},
+        {"recovery", "1"}, {"recovery_min_sep", "3"}},
+       2.0},
+      {"original_floor", {{"sigma_floor_rate", "2"}}},
+      {"original_recovery_sep_floor", {{"recovery", "1"}, {"recovery_min_sep", "3"}, {"sigma_floor_rate", "2"}}},
+      {"matched_recovery_sep_floor",
+       {{"filter_vo_scale_sigma", "0.01"}, {"filter_vo_scale_tau", "120"}, {"filter_accel_bias_rw", "4e-4"},
+        {"recovery", "1"}, {"recovery_min_sep", "3"}, {"sigma_floor_rate", "2"}}},
   };
   return v;
 }
@@ -84,20 +101,25 @@ struct Frame {
   }
 };
 
-// 航线跟踪制导：在 A、B 两点之间往返，航向指令 = 航线方向 − atan(偏航距 / L)，坡度 ≤ 45°，坡度变化率受限
+// 航线跟踪制导：在 A、B 两点（地图坐标）之间往返，航向指令 = 航线方向 − atan(偏航距 / L)，
+// 坡度 ≤ 45°，坡度变化率受限
 class Guidance {
  public:
-  Guidance(const Frame& f, real n_a, real n_b, real e_c) : f_(f), na_(n_a), nb_(n_b), ec_(e_c) {}
+  Guidance(const Frame& f, real na, real ea, real nb, real eb) : f_(f), na_(na), ea_(ea) {
+    len_ = std::hypot(nb - na, eb - ea);
+    un_ = (nb - na) / len_;
+    ue_ = (eb - ea) / len_;
+  }
 
   real yawRate(real t, const nav::NavState& s) {
     real n, e;
     f_.toMap(s.lat, s.lon, n, e);
-    const real to = to_b_ ? nb_ : na_;
-    const real dir = to_b_ ? -1.0 : 1.0;  // A 在北、B 在南
-    if ((to - n) * dir < 0) to_b_ = !to_b_;  // 越过端点后掉头
-    const real line_course = to_b_ ? nav::kPi : 0.0;
-    // 偏航距：以航线前进方向为基准，右侧为正
-    const real xte = to_b_ ? -(e - ec_) : (e - ec_);
+    const real along = (n - na_) * un_ + (e - ea_) * ue_;
+    const real cross = -(n - na_) * ue_ + (e - ea_) * un_;  // A→B 方向右侧为正
+    if (to_b_ && along > len_) to_b_ = false;                // 越过端点后掉头
+    if (!to_b_ && along < 0) to_b_ = true;
+    const real line_course = std::atan2(to_b_ ? ue_ : -ue_, to_b_ ? un_ : -un_);
+    const real xte = to_b_ ? cross : -cross;
     const real course_cmd = line_course - std::atan(xte / 1000.0);
     const real course = std::atan2(s.vn[1], s.vn[0]);
     const real max_rate = 9.8 * std::tan(45.0 * kDeg) / kV;
@@ -112,7 +134,7 @@ class Guidance {
 
  private:
   Frame f_;
-  real na_, nb_, ec_;
+  real na_, ea_, un_, ue_, len_;
   bool to_b_ = true;
   real rate_ = 0, last_t_ = -1;
 };
@@ -137,6 +159,7 @@ int main(int argc, char** argv) {
   std::string map_path = "data/ahr_0.50m.map", out = "results/demo/demo", variants_arg = "original,original_recovery_sep,matched,matched_recovery,matched_recovery_sep";
   int runs = 8, threads = static_cast<int>(std::thread::hardware_concurrency());
   unsigned seed0 = 1;
+  real lat_deg = 50.53, lon_deg = 7.05, max_prior = 1000;
   std::vector<char*> rest = {argv[0]};
   for (int i = 1; i < argc; ++i) {
     if (!std::strncmp(argv[i], "map=", 4)) map_path = argv[i] + 4;
@@ -145,6 +168,9 @@ int main(int argc, char** argv) {
     else if (!std::strncmp(argv[i], "seed0=", 6)) seed0 = static_cast<unsigned>(std::atoi(argv[i] + 6));
     else if (!std::strncmp(argv[i], "out=", 4)) out = argv[i] + 4;
     else if (!std::strncmp(argv[i], "variants=", 9)) variants_arg = argv[i] + 9;
+    else if (!std::strncmp(argv[i], "lat=", 4)) lat_deg = std::atof(argv[i] + 4);
+    else if (!std::strncmp(argv[i], "lon=", 4)) lon_deg = std::atof(argv[i] + 4);
+    else if (!std::strncmp(argv[i], "max_prior=", 10)) max_prior = std::atof(argv[i] + 10);
     else rest.push_back(argv[i]);
   }
   vision::GeoMap map;
@@ -155,7 +181,11 @@ int main(int argc, char** argv) {
   const vision::Terrain T(map.dem, map.gsd);
   const vision::Camera cam;
   const vision::Renderer renderer(map.post, map.gsd, T);
-  const real strip_len = map.height() * map.gsd, strip_w = map.width() * map.gsd, e_c = strip_w / 2;
+  // 航线沿影像区域的长轴穿过中心，两端各延伸 kExtend
+  const real H = map.height() * map.gsd, W = map.width() * map.gsd;
+  const bool ns = H >= W;
+  const real na = ns ? kExtend : -H / 2, ea = ns ? W / 2 : -kExtend;
+  const real nb = ns ? -H - kExtend : -H / 2, eb = ns ? W / 2 : W + kExtend;
 
   // 基础配置：真实误差剖面，1 Hz 关键帧景象匹配，关闭三维地形匹配（只看景象匹配）
   sim::SimConfig base;
@@ -174,15 +204,14 @@ int main(int argc, char** argv) {
   for (const auto& v : allVariants())
     if (("," + variants_arg + ",").find("," + v.name + ",") != std::string::npos) variants.push_back(v);
 
-  // 起点：条带北端以北 12 km，沿条带中线向南
+  // 起点：航线 A 端（区域外 12 km），沿航线飞向 B
   sim::Scenario sc0;
-  sc0.lat0 = 50.53 * kDeg;
-  sc0.lon0 = 7.05 * kDeg;
+  sc0.lat0 = lat_deg * kDeg;
+  sc0.lon0 = lon_deg * kDeg;
   sc0.h0 = 1500.0;
-  sc0.yaw0 = nav::kPi;
+  sc0.yaw0 = std::atan2(eb - ea, nb - na);
   const nav::earth::Radii r0 = nav::earth::radii(sc0.lat0);
-  const Frame frame{sc0.lat0, sc0.lon0, r0.rn, r0.re * std::cos(sc0.lat0), kExtend, e_c,
-                    T.mean() + 1000.0 - sc0.h0};
+  const Frame frame{sc0.lat0, sc0.lon0, r0.rn, r0.re * std::cos(sc0.lat0), na, ea, T.mean() + 1000.0 - sc0.h0};
 
   std::vector<RunOut> outs;
   for (const auto& v : variants)
@@ -195,24 +224,29 @@ int main(int argc, char** argv) {
         RunOut& o = outs[k];
         sim::SimConfig c = base;
         c.seed = o.seed;
+        real window_rate = 0;
         for (const auto& v : variants)
-          if (v.name == o.variant)
+          if (v.name == o.variant) {
             for (const auto& [key, val] : v.params) sim::setParam(c, key, val);
+            window_rate = v.window_rate;
+          }
         sim::Scenario sc = sc0;
-        auto guid = std::make_shared<Guidance>(frame, kExtend, -(strip_len + kExtend), e_c);
+        auto guid = std::make_shared<Guidance>(frame, na, ea, nb, eb);
         sc.yaw_rate = [guid](real t, const nav::NavState& s) { return guid->yawRate(t, s); };
         vision::SceneMatcher matcher(map.pre, map.gsd, cam, T);
         std::mt19937_64 rng(o.seed * 1000003ull + 7);  // 图像噪声：与滤波器配置无关，各配置看到同一组图像
-        sc.fix_provider = [&](real t, const nav::NavState& truth, const nav::NavState& est, real sigma_ne,
-                              nav::PositionFix& z, bool& outlier) {
+        sc.fix_provider = [&, window_rate](real t, const nav::NavState& truth, const nav::NavState& est,
+                                           real sigma_ne, real t_since_fix, nav::PositionFix& z, bool& outlier) {
           const vision::Pose tp = frame.pose(truth);
-          if (tp.n > 150 || tp.n < -strip_len - 150 || std::fabs(tp.e - e_c) > strip_w / 2 + 150) return false;
+          if (tp.n > 150 || tp.n < -H - 150 || tp.e < -150 || tp.e > W + 150) return false;
           ++o.attempts;
           cv::Mat img, valid;
           renderer.render(tp, cam, img, valid, &rng);
           const vision::Pose ep = frame.pose(est);
-          // 搜索窗口取 3σ：滤波器 σ 过于乐观时真实位置落在窗口外，匹配器直接失败（匹配器层面的“锁死”）
-          const vision::MatchResult r = matcher.match(img, valid, ep, std::clamp(sigma_ne, 10.0, 400.0));
+          // 搜索窗口取 3σ：滤波器 σ 过于乐观时真实位置落在窗口外，匹配器直接失败（匹配器层面的“锁死”）。
+          // window 配置按“距上次被接受修正的时间 × 漂移率”给 σ 设下限，与滤波器自身的 σ 无关
+          const real prior = std::clamp(std::max(sigma_ne, window_rate * t_since_fix), 10.0, max_prior);
+          const vision::MatchResult r = matcher.match(img, valid, ep, prior);
           const real e = r.ok ? std::hypot(r.n - tp.n, r.e - tp.e) : NAN;
           o.log.push_back({t, r.stage, r.psr, r.sigma, e});
           if (!r.ok) return false;

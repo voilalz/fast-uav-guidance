@@ -1,0 +1,5 @@
+fix_interval,vo_scale_gm_sigma,runs,lockout_runs
+15,0.001,100,18
+15,0.002,100,78
+60,0.001,100,10
+60,0.002,100,63

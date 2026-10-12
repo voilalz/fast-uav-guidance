@@ -40,6 +40,10 @@ struct LockoutRecoveryConfig {
   // 真实景象匹配的错误匹配与地物绑定，相邻关键帧会在同一位置重复出现、彼此“一致”；
   // 取 ≥ 视场幅宽 / 地速（如 384 m / 167 m/s ≈ 2.3 s）可避免把它们误判为锁死。0 表示不限制。
   real min_separation_s = 0.0;
+  // 协方差下限：水平 1σ ≥ sigma_floor_rate × 距上次被接受的绝对修正的时间（m/s），不足时抬高水平位置方差。
+  // 搜索窗口与 χ² 门限都由同一个协方差决定；只放大匹配器的搜索窗口而不放大协方差时，
+  // 找到的正确修正仍会被门限拒绝（见 docs/demo.md 第 7 节）。0 表示不启用。
+  real sigma_floor_rate = 0.0;
 };
 
 struct FixEvent {
@@ -77,6 +81,9 @@ class NavCore {
   bool onImu(const ImuSample& imu, NavOutput& out);
 
   void onPositionFix(const PositionFix& z);
+  // 按 recovery.sigma_floor_rate 施加协方差下限。在向视觉计算机发布 σ（决定搜索窗口）之前调用；
+  // onPositionFix 也会先调用一次。
+  void applySigmaFloor(TimeUs now);
   void onVoVelocity(const VoVelocity& z);
   void onAirspeed(const Airspeed& z);
   void onBaro(const BaroAlt& z);

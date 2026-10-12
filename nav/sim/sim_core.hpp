@@ -67,6 +67,7 @@ struct SimConfig {
   int recovery_k = 2;
   real recovery_drift_rate = 2.0;
   real recovery_min_sep = 0;  // 被拒修正计为独立证据的最小间隔 s
+  real sigma_floor_rate = 0;  // 协方差下限：水平 σ ≥ 该值 × 距上次被接受修正的时间（m/s），0 不启用
 };
 
 // 设置参数，未知 key 返回 false。profile=realistic 一次性启用更真实的误差模型。
@@ -112,10 +113,10 @@ struct Scenario {
   // 可选：真值航向角速度 rad/s（输入时间与当前真值），用于制导律驱动的航线；为空时用内置三次转弯剖面
   std::function<real(real t, const nav::NavState& truth)> yaw_rate;
   // 可选：景象匹配量测提供者（如图像在环的真实匹配器），按 fix_interval 调用。
-  // 输入真值、导航当前估计及其水平 1σ；返回 false 表示本帧无量测。outlier 仅用于统计（是否为错误匹配）。
-  // 设置后取代内置的统计量测模型（含 gap 与 outlier_rate）。
+  // 输入真值、导航当前估计及其水平 1σ、距上次被接受的绝对修正的时间 s；返回 false 表示本帧无量测。
+  // outlier 仅用于统计（是否为错误匹配）。设置后取代内置的统计量测模型（含 gap 与 outlier_rate）。
   std::function<bool(real t, const nav::NavState& truth, const nav::NavState& est, real sigma_ne,
-                     nav::PositionFix& z, bool& outlier)>
+                     real t_since_fix, nav::PositionFix& z, bool& outlier)>
       fix_provider;
 };
 

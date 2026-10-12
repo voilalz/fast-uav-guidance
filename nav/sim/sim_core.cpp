@@ -86,7 +86,7 @@ bool setParam(SimConfig& c, const std::string& k, const std::string& v) {
   P(near_min) P(near_max) P(gap_start) P(gap_end) PB(fix_yaw) P(fix_yaw_noise_deg) P(fix_yaw_sigma_deg)
   PB(t3d) P(t3d_interval) P(t3d_first) P(t3d_delay) P(t3d_noise_ne) P(t3d_noise_d)
   PB(airspeed) PB(heading) P(wind_n) P(wind_e) P(baro_bias) P(mag_bias_deg) P(mag_noise_deg) P(mag_sigma_deg)
-  PB(est_baro_bias) PB(est_vo_scale) PB(est_mag_bias) P(filter_accel_bias_rw) P(filter_gyro_bias_rw) P(filter_vo_scale_rw) P(filter_vo_scale_sigma) P(filter_vo_scale_tau) PB(recovery) PB(delay_corr) PI(recovery_k) P(recovery_drift_rate) P(recovery_min_sep)
+  PB(est_baro_bias) PB(est_vo_scale) PB(est_mag_bias) P(filter_accel_bias_rw) P(filter_gyro_bias_rw) P(filter_vo_scale_rw) P(filter_vo_scale_sigma) P(filter_vo_scale_tau) PB(recovery) PB(delay_corr) PI(recovery_k) P(recovery_drift_rate) P(recovery_min_sep) P(sigma_floor_rate)
 #undef P
 #undef PB
 #undef PI
@@ -182,6 +182,7 @@ Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose) 
   ncfg.recovery.consecutive = cfg.recovery_k;
   ncfg.recovery.drift_rate = cfg.recovery_drift_rate;
   ncfg.recovery.min_separation_s = cfg.recovery_min_sep;
+  ncfg.recovery.sigma_floor_rate = cfg.sigma_floor_rate;
   NavCore core(ncfg);
   core.init(x0, InitSigma{});
 
@@ -199,6 +200,7 @@ Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose) 
   int nees_n = 0, nees_in = 0;
   int consec_false_rej = 0;
   real lockout_start = 0;
+  real last_fix_accept_t = 0;  // GNSS 拒止时刻视为最后一次绝对定位
 
   const long steps = static_cast<long>(cfg.duration * kImuHz);
   for (long k = 0; k < steps; ++k) {
@@ -258,11 +260,13 @@ Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose) 
     if (sc.fixes && cfg.fixes && t >= next_fix) {
       next_fix += cfg.fix_interval;
       if (sc.fix_provider) {
+        core.applySigmaFloor(t_us);
         PositionFix z;
         z.t_us = t_us;
         z.source = FixSource::kSceneMatch;
         bool outlier = false;
-        if (sc.fix_provider(t, truth, core.filter().state(), core.filter().sigmaNe(), z, outlier))
+        if (sc.fix_provider(t, truth, core.filter().state(), core.filter().sigmaNe(), t - last_fix_accept_t, z,
+                            outlier))
           q_fix.push_back({t_us + static_cast<TimeUs>(cfg.fix_delay * 1e6), z, outlier, truth.lat, truth.lon});
       } else if (!(t > cfg.gap_start && t < cfg.gap_end)) {
         const bool outlier = rng.u() < cfg.outlier_rate;
@@ -336,6 +340,7 @@ Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose) 
       const MeasurementStats& after = core.fixStats();
       if (after.too_old == before.too_old) {
         const FixEvent& ev = core.lastFixEvent();
+        if (ev.accepted) last_fix_accept_t = t;
         if (d.outlier) (ev.accepted ? res.outlier_accepted : res.outlier_rejected)++;
         else (ev.accepted ? res.true_accepted : res.true_rejected)++;
         if (!d.outlier && !ev.accepted) {
