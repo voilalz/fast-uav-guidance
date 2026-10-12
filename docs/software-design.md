@@ -69,6 +69,9 @@ nav/
 ├── sim/sim_main.cpp            单次仿真（nav_sim），可输出逐秒误差/σ/NEES CSV
 ├── sim/mc_main.cpp             Monte-Carlo 批量仿真（nav_mc），多线程
 └── tests/test_main.cpp         单元测试
+
+vision/                         图像级视觉管线（C++/OpenCV，可选构建）：地图构建、实时图渲染、VO、景象匹配与评估
+demo/nav_demo.cpp               图像在环闭环仿真：sim_core 的制导航线 + 真实影像景象匹配器作为量测源
 ```
 
 `navcore` 库按嵌入式约束编译（`-fno-exceptions -fno-rtti`，不使用 `new`/`malloc`），移植到 STM32H7 时只需用 `arm-none-eabi-g++` 编译同一批源文件，并实现 `mcu_hal.hpp` 中的接口。
@@ -85,7 +88,9 @@ ctest --test-dir build --output-on-failure   # 单元测试 + 闭环仿真回归
 ./build/nav_mc runs=100 out=mc profile=realistic recovery=1   # Monte-Carlo
 ```
 
-论文对比实验由 `tools/experiments.py` 批量运行，图像级视觉管线在仓库根目录 `vision/`（Python），见 [实验记录](experiments.md)。
+在仓库根目录统一构建时（`cmake -B build && cmake --build build`），若找到 OpenCV 则同时构建 `vision/` 与 `demo/`。
+
+论文对比实验由 `tools/experiments.py` 批量运行，图像级视觉管线在仓库根目录 `vision/`（C++/OpenCV），图像在环闭环 demo 在 `demo/`（见 [demo.md](demo.md)），见 [实验记录](experiments.md)。
 
 ---
 
@@ -180,6 +185,10 @@ ctest --test-dir build --output-on-failure   # 单元测试 + 闭环仿真回归
    而不是量测（独立的错误匹配之间一般不一致）；
 3. 按最新新息把运动学误差协方差（位置/速度/姿态）放大 λ 倍、互协方差放大 √λ 倍（P ← DPD，保持正定），
    使该新息 NIS ≈ 2，然后重新执行该次更新。
+
+`min_separation_s`：只有与上一条被拒记录间隔不小于该值的被拒修正才计入第 1 步。真实景象匹配的错误匹配与地物绑定，
+相邻关键帧视场重叠时会在同一位置重复出现、彼此“一致”。取 ≥ 视场幅宽 / 地速可以避免把它误判为锁死，
+见 [图像在环 demo](demo.md) 发现 (3)(4)。默认 0 表示不限制，与统计仿真的历史结果一致。
 
 ### 3.7 模式管理（`nav_core.cpp`）
 

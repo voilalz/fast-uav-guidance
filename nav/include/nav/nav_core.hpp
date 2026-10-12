@@ -36,6 +36,10 @@ struct LockoutRecoveryConfig {
   real window_s = 150.0;        // 两次被拒修正的最大间隔
   real drift_rate = 2.0;        // 修正间隙内导航误差变化率上界（1σ）m/s
   real consistency_gate = 9.21; // χ²(2) 99%
+  // 两次被拒修正的最小时间间隔：间隔更短（视场重叠）的被拒修正不作为独立证据。
+  // 真实景象匹配的错误匹配与地物绑定，相邻关键帧会在同一位置重复出现、彼此“一致”；
+  // 取 ≥ 视场幅宽 / 地速（如 384 m / 167 m/s ≈ 2.3 s）可避免把它们误判为锁死。0 表示不限制。
+  real min_separation_s = 0.0;
 };
 
 struct FixEvent {

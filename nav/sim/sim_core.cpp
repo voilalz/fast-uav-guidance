@@ -41,7 +41,7 @@ real yawRate(real t) {
 }
 
 template <class T>
-struct Delayed { TimeUs deliver; T z; bool outlier; };
+struct Delayed { TimeUs deliver; T z; bool outlier; real truth_lat = 0, truth_lon = 0; };  // 真值取量测时刻
 
 // 一阶马尔可夫过程离散化
 struct GaussMarkov {
@@ -86,7 +86,7 @@ bool setParam(SimConfig& c, const std::string& k, const std::string& v) {
   P(near_min) P(near_max) P(gap_start) P(gap_end) PB(fix_yaw) P(fix_yaw_noise_deg) P(fix_yaw_sigma_deg)
   PB(t3d) P(t3d_interval) P(t3d_first) P(t3d_delay) P(t3d_noise_ne) P(t3d_noise_d)
   PB(airspeed) PB(heading) P(wind_n) P(wind_e) P(baro_bias) P(mag_bias_deg) P(mag_noise_deg) P(mag_sigma_deg)
-  PB(est_baro_bias) PB(est_vo_scale) PB(est_mag_bias) P(filter_accel_bias_rw) P(filter_gyro_bias_rw) P(filter_vo_scale_rw) P(filter_vo_scale_sigma) P(filter_vo_scale_tau) PB(recovery) PB(delay_corr) PI(recovery_k) P(recovery_drift_rate)
+  PB(est_baro_bias) PB(est_vo_scale) PB(est_mag_bias) P(filter_accel_bias_rw) P(filter_gyro_bias_rw) P(filter_vo_scale_rw) P(filter_vo_scale_sigma) P(filter_vo_scale_tau) PB(recovery) PB(delay_corr) PI(recovery_k) P(recovery_drift_rate) P(recovery_min_sep)
 #undef P
 #undef PB
 #undef PI
@@ -131,10 +131,10 @@ Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose) 
 
   // ---- 真值初始状态 ----
   NavState truth;
-  truth.lat = 30.0 * kDeg;
-  truth.lon = 110.0 * kDeg;
-  truth.h = 1500.0;
-  real yaw = 45.0 * kDeg;
+  truth.lat = sc.lat0;
+  truth.lon = sc.lon0;
+  truth.h = sc.h0;
+  real yaw = sc.yaw0;
   const real pitch = 2.0 * kDeg;  // 巡航攻角
   truth.vn = vec3(kV * std::cos(yaw), kV * std::sin(yaw), 0);
   truth.q = Quat::fromEuler(0, pitch, yaw);
@@ -181,6 +181,7 @@ Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose) 
   ncfg.recovery.enable = cfg.recovery;
   ncfg.recovery.consecutive = cfg.recovery_k;
   ncfg.recovery.drift_rate = cfg.recovery_drift_rate;
+  ncfg.recovery.min_separation_s = cfg.recovery_min_sep;
   NavCore core(ncfg);
   core.init(x0, InitSigma{});
 
@@ -206,8 +207,9 @@ Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose) 
     Vec3 w_sum, f_sum;
     for (int s = 0; s < nsub; ++s) {
       const real ts = t + (s + 1) * dts;
-      yaw += yawRate(ts) * dts;
-      const real bank = std::atan(kV * yawRate(ts) / 9.8);
+      const real yr = sc.yaw_rate ? sc.yaw_rate(ts, truth) : yawRate(ts);
+      yaw += yr * dts;
+      const real bank = std::atan(kV * yr / 9.8);
       const Vec3 v1 = vec3(kV * std::cos(yaw), kV * std::sin(yaw), 0);
       const Quat q1 = Quat::fromEuler(bank, pitch, yaw);
       const Mat3 C = truth.q.toDcm();
@@ -255,7 +257,14 @@ Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose) 
     // ---- 景象匹配 ----
     if (sc.fixes && cfg.fixes && t >= next_fix) {
       next_fix += cfg.fix_interval;
-      if (!(t > cfg.gap_start && t < cfg.gap_end)) {
+      if (sc.fix_provider) {
+        PositionFix z;
+        z.t_us = t_us;
+        z.source = FixSource::kSceneMatch;
+        bool outlier = false;
+        if (sc.fix_provider(t, truth, core.filter().state(), core.filter().sigmaNe(), z, outlier))
+          q_fix.push_back({t_us + static_cast<TimeUs>(cfg.fix_delay * 1e6), z, outlier, truth.lat, truth.lon});
+      } else if (!(t > cfg.gap_start && t < cfg.gap_end)) {
         const bool outlier = rng.u() < cfg.outlier_rate;
         real e_n, e_e;
         if (!outlier) {
@@ -282,7 +291,7 @@ Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose) 
           z.yaw = wrapPi(yt + (outlier ? 3.0 * kDeg : 0.0) + rng2.n(cfg.fix_yaw_noise_deg * kDeg));
           z.sigma_yaw = cfg.fix_yaw_sigma_deg * kDeg;
         }
-        q_fix.push_back({t_us + static_cast<TimeUs>(cfg.fix_delay * 1e6), z, outlier});
+        q_fix.push_back({t_us + static_cast<TimeUs>(cfg.fix_delay * 1e6), z, outlier, truth.lat, truth.lon});
       }
     }
     // ---- 三维地形匹配（含高度）----
@@ -297,7 +306,7 @@ Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose) 
       z.sigma_ne = cfg.t3d_noise_ne;
       z.sigma_d = cfg.t3d_noise_d;
       z.source = FixSource::kTerrain3D;
-      q_fix.push_back({t_us + static_cast<TimeUs>(cfg.t3d_delay * 1e6), z, false});
+      q_fix.push_back({t_us + static_cast<TimeUs>(cfg.t3d_delay * 1e6), z, false, truth.lat, truth.lon});
     }
     // ---- 50 Hz：空速、气压 ----
     if (t >= next_50hz) {
@@ -339,9 +348,9 @@ Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose) 
         }
         if (record) {
           const earth::Radii r = earth::radii(d.z.lat);
-          const real mn = (d.z.lat - truth.lat) * r.rn, me = (d.z.lon - truth.lon) * r.re * std::cos(truth.lat);
+          const real mn = (d.z.lat - d.truth_lat) * r.rn, me = (d.z.lon - d.truth_lon) * r.re * std::cos(d.truth_lat);
           res.fixes.push_back({t, static_cast<int>(d.z.source), d.outlier, ev.accepted, ev.recovered, ev.nis,
-                               std::hypot(mn, me)});
+                               std::hypot(mn, me), d.z.lat, d.z.lon, d.truth_lat, d.truth_lon});
         }
       }
       q_fix.erase(q_fix.begin() + i);
@@ -375,7 +384,7 @@ Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose) 
       if (nees_p >= chi2Lo3 && nees_p <= chi2Hi3) ++nees_in;
       if (record)
         res.samples.push_back({t + dt, e[0], e[1], e[2], eh, core.filter().sigmaNe(), nees_p, nees_k,
-                               static_cast<int>(core.mode())});
+                               static_cast<int>(core.mode()), truth.lat, truth.lon, s.lat, s.lon});
     }
     if (t + dt >= next_report) {
       const int slot = next_report == 60 ? 0 : next_report == 300 ? 1 : next_report == 600 ? 2

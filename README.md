@@ -8,7 +8,8 @@
 - [导航代码](nav/)：嵌入式 C++17 / C99 导航核心库、闭环仿真与单元测试
 - [误差预算脚本](tools/error_budget.py)：`python3 tools/error_budget.py`
 - [实验记录](docs/experiments.md)：门限锁死 Monte-Carlo 对比实验、真实影像上的景象匹配与 VO 评估
-- [视觉离线管线](vision/)：Python 实现的 VO 与景象匹配（真实多时相卫星影像 + DEM 渲染）
+- [视觉离线管线](vision/)：C++/OpenCV 实现的 VO 与景象匹配（真实多时相卫星影像 + DEM 渲染）
+- [图像在环 demo](docs/demo.md)：景象匹配器接入闭环导航仿真，对比原模型与匹配模型 + 锁死恢复
 - [Monte-Carlo 实验脚本](tools/experiments.py)
 
 ## 快速开始

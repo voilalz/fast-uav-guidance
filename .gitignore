@@ -3,3 +3,4 @@ build*/
 data/
 results/raw/
 __pycache__/
+results/demo/demo_series.csv

@@ -212,6 +212,29 @@ static void testLockoutRecovery() {
   const FixEvent e2 = fix(310);      // 与上一次一致：恢复后接受
   CHECK(e2.accepted && e2.recovered);
   CHECK(core.recoveries() == 1);
+
+  // 最小间隔：1 s 内重复出现的一致被拒修正（同一地物上的错误匹配）不触发恢复
+  NavCoreConfig cfg2 = cfg;
+  cfg2.recovery.min_separation_s = 3.0;
+  NavCore core2(cfg2);
+  core2.init(x, InitSigma{});
+  auto fix2 = [&](real north_m) {
+    PositionFix z;
+    z.t_us = imu.t_us;
+    z.lat = x.lat + north_m / rn;
+    z.lon = x.lon;
+    z.h = x.h;
+    z.sigma_ne = 10;
+    core2.onPositionFix(z);
+    return core2.lastFixEvent();
+  };
+  for (int i = 0; i < 400 * 10; ++i) { imu.t_us += 2500; core2.onImu(imu, out); }
+  CHECK(!fix2(300).accepted);
+  for (int i = 0; i < 400; ++i) { imu.t_us += 2500; core2.onImu(imu, out); }
+  CHECK(!fix2(302).accepted);        // 1 s 后：视场重叠，不计入
+  for (int i = 0; i < 400 * 3; ++i) { imu.t_us += 2500; core2.onImu(imu, out); }
+  const FixEvent e3 = fix2(305);     // 距第一次 4 s：独立证据，恢复
+  CHECK(e3.accepted && e3.recovered);
 }
 
 int main() {
