@@ -7,6 +7,7 @@
 #include "nav/earth.hpp"
 #include "nav/eskf.hpp"
 #include "nav/imu_array.hpp"
+#include "nav/nav_core.hpp"
 #include "nav/protocol.h"
 #include "nav/strapdown.hpp"
 #include "nav/terrain.hpp"
@@ -144,6 +145,75 @@ static void testProtocol() {
   CHECK(got == 0 && d.crc_errors == 1);
 }
 
+
+// 关闭的时间相关误差状态：协方差恒为 0，名义值不被修正
+static void testDisabledStates() {
+  EskfConfig cfg;
+  cfg.est_mag_bias = false;
+  Eskf f(cfg);
+  NavState x;
+  x.lat = 30 * kDeg;
+  x.vn = vec3(150, 50, 0);
+  x.q = Quat::fromEuler(0, 0.03, 0.3);
+  f.init(x, InitSigma{});
+  ImuSample imu;
+  imu.accel = vec3(0, 0, -9.79);
+  for (int i = 0; i < 400; ++i) { imu.t_us += 2500; f.predict(imu, 0.0025); }
+  MagHeading m;
+  m.yaw = 0.3 + 0.01;
+  f.updateHeading(m, f.state());
+  CHECK(f.cov()(idx::MB, idx::MB) == 0);
+  CHECK(f.state().mag_bias == 0);
+  CHECK(f.cov()(idx::KV, idx::KV) > 0);
+}
+
+// 协方差膨胀：运动学块放大 λ 倍，互协方差放大 sqrt(λ)，其余不变
+static void testInflate() {
+  Eskf f;
+  NavState x;
+  f.init(x, InitSigma{});
+  PositionFix z;
+  z.lat = 1.0 / earth::radii(0).rn;
+  f.updatePosition(z, f.state());  // 制造一些互协方差
+  const StateCov P0 = f.cov();
+  f.inflateKinematic(4.0);
+  const StateCov& P = f.cov();
+  CHECK(std::fabs(P(0, 0) - 4 * P0(0, 0)) < 1e-9 * P0(0, 0) + 1e-12);
+  CHECK(std::fabs(P(0, idx::BG) - 2 * P0(0, idx::BG)) < 1e-12 + 1e-9 * std::fabs(P0(0, idx::BG)));
+  CHECK(P(idx::BG, idx::BG) == P0(idx::BG, idx::BG));
+}
+
+// 门限锁死恢复：连续两次一致的大新息触发协方差膨胀后被接受；一次孤立的大新息仍被拒绝
+static void testLockoutRecovery() {
+  NavCoreConfig cfg;
+  cfg.recovery.enable = true;
+  NavCore core(cfg);
+  NavState x;
+  x.lat = 30 * kDeg;
+  x.h = 1000;
+  core.init(x, InitSigma{});
+  ImuSample imu;
+  imu.accel = vec3(0, 0, -earth::gravity(x.lat, x.h));
+  NavOutput out;
+  const real rn = earth::radii(x.lat).rn;
+  auto fix = [&](real north_m) {
+    PositionFix z;
+    z.t_us = imu.t_us;
+    z.lat = x.lat + north_m / rn;
+    z.lon = x.lon;
+    z.h = x.h;
+    z.sigma_ne = 10;
+    core.onPositionFix(z);
+    return core.lastFixEvent();
+  };
+  for (int i = 0; i < 400 * 10; ++i) { imu.t_us += 2500; core.onImu(imu, out); }
+  CHECK(!fix(300).accepted);        // 孤立的 300 m 新息：拒绝
+  for (int i = 0; i < 400 * 30; ++i) { imu.t_us += 2500; core.onImu(imu, out); }
+  const FixEvent e2 = fix(310);      // 与上一次一致：恢复后接受
+  CHECK(e2.accepted && e2.recovered);
+  CHECK(core.recoveries() == 1);
+}
+
 int main() {
   testMath();
   testStrapdownStatic();
@@ -152,6 +222,9 @@ int main() {
   testImuArrayOutlier();
   testTercom();
   testProtocol();
+  testDisabledStates();
+  testInflate();
+  testLockoutRecovery();
   std::printf("%s (%d failures)\n", g_fail ? "FAIL" : "PASS", g_fail);
   return g_fail ? 1 : 0;
 }

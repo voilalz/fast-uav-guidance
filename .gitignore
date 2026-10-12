@@ -1,2 +1,5 @@
 nav/build/
 build*/
+data/
+results/raw/
+__pycache__/

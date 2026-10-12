@@ -1,0 +1,48 @@
+group,tag,name,params,runs,rms_median,rms_p95,max_p95,false_reject_pct,false_accept_pct,lockout_run_pct,lockout_longest_p95_s,recoveries_mean,anees_pos_median
+E1,E1_01,完整建模,,100,10.513,13.273,41.571,0.074,0.000,0.000,0.000,0.000,2.668
+E1,E1_02,磁偏差未建模,est_mag_bias=0,100,351.312,752.397,1330.979,57.394,0.000,82.000,1095.000,0.000,95.663
+E1,E1_03,VO 尺度未建模,est_vo_scale=0,100,2709.314,3305.423,6877.274,97.597,0.000,100.000,1155.000,0.000,1915.218
+E1,E1_04,磁偏差+尺度未建模,est_mag_bias=0 est_vo_scale=0,100,1111.736,1155.516,1966.951,97.856,0.000,100.000,1155.000,0.000,2781.035
+E1,E1_05,磁偏差未建模+恢复,est_mag_bias=0 recovery=1,100,40.406,61.556,220.456,11.146,2.105,16.000,45.000,3.690,56.466
+E1,E1_06,VO 尺度未建模+恢复,est_vo_scale=0 recovery=1,100,92.755,313.611,1223.977,44.991,1.579,100.000,377.250,10.940,443.651
+E1,E1_07,磁偏差+尺度未建模+恢复,est_mag_bias=0 est_vo_scale=0 recovery=1,100,77.107,93.442,327.274,36.359,2.105,57.000,60.000,14.120,573.268
+E2,E2_01,原模型,profile=realistic,100,564.704,4406.840,11906.175,67.603,7.671,100.000,1035.000,0.000,236.248
+E2,E2_02,原模型+恢复,profile=realistic recovery=1,100,48.947,207.133,1266.873,26.819,27.945,77.000,203.250,5.870,1893.786
+E2,E2_03,仅尺度马尔可夫,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01,100,133.955,362.506,1226.862,23.228,13.973,88.000,483.000,0.000,18.617
+E2,E2_04,匹配模型,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4,100,18.501,94.956,338.140,3.114,13.151,14.000,168.000,0.000,4.636
+E2,E2_05,匹配模型+恢复,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1,100,18.677,32.550,142.633,0.917,16.164,0.000,0.000,0.470,4.489
+E2,E2_06,匹配模型+恢复+匹配航向,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 fix_yaw=1,100,19.545,44.475,205.044,1.662,17.260,1.000,0.000,0.670,5.682
+E3,E3_01,尺度GM σ=0.001,vo_scale_gm_sigma=0.001,100,15.419,37.618,111.617,3.623,0.000,20.000,150.750,0.000,10.120
+E3,E3_02,尺度GM σ=0.001+恢复,vo_scale_gm_sigma=0.001 recovery=1,100,15.416,24.688,71.107,1.405,2.105,0.000,0.000,0.290,10.160
+E3,E3_03,尺度GM σ=0.002,vo_scale_gm_sigma=0.002,100,39.817,280.472,701.283,23.087,0.526,76.000,690.750,0.000,42.703
+E3,E3_04,尺度GM σ=0.002+恢复,vo_scale_gm_sigma=0.002 recovery=1,100,25.044,56.010,185.861,6.488,2.105,11.000,45.000,1.370,48.453
+E3,E3_05,尺度GM σ=0.003,vo_scale_gm_sigma=0.003,100,138.183,939.773,2273.388,43.438,1.579,95.000,885.000,0.000,95.944
+E3,E3_06,尺度GM σ=0.003+恢复,vo_scale_gm_sigma=0.003 recovery=1,100,31.472,79.873,306.773,12.107,2.105,23.000,120.750,2.760,327.757
+E3,E3_07,尺度GM σ=0.005,vo_scale_gm_sigma=0.005,100,560.379,3224.752,7584.365,67.763,2.632,100.000,945.000,0.000,173.831
+E3,E3_08,尺度GM σ=0.005+恢复,vo_scale_gm_sigma=0.005 recovery=1,100,43.246,383.047,2124.266,24.233,2.105,60.000,195.000,5.160,1565.646
+E3,E3_09,尺度GM σ=0.01,vo_scale_gm_sigma=0.01,100,4055.739,19345.595,44875.861,84.954,0.526,100.000,1125.000,0.000,2328.004
+E3,E3_10,尺度GM σ=0.01+恢复,vo_scale_gm_sigma=0.01 recovery=1,100,125.239,5197.024,12348.676,48.521,4.737,99.000,675.000,7.140,21790.907
+E3b,E3b_01,加计漂移 0.1 mg,accel_drift_mg=0.1,100,10.537,13.111,40.486,0.074,0.000,0.000,0.000,0.000,2.835
+E3b,E3b_02,加计漂移 0.1 mg+恢复,accel_drift_mg=0.1 recovery=1,100,10.582,15.631,55.917,0.148,2.105,0.000,0.000,0.080,3.279
+E3b,E3b_03,加计漂移 0.25 mg,accel_drift_mg=0.25,100,10.999,14.183,45.232,0.148,0.000,0.000,0.000,0.000,3.694
+E3b,E3b_04,加计漂移 0.25 mg+恢复,accel_drift_mg=0.25 recovery=1,100,11.021,18.013,66.906,0.222,2.105,0.000,0.000,0.080,4.444
+E3b,E3b_05,加计漂移 0.5 mg,accel_drift_mg=0.5,100,12.568,26.433,87.229,1.128,0.000,7.000,30.750,0.000,6.428
+E3b,E3b_06,加计漂移 0.5 mg+恢复,accel_drift_mg=0.5 recovery=1,100,12.648,27.496,88.049,0.924,2.105,1.000,0.000,0.150,8.736
+E3b,E3b_07,加计漂移 1.0 mg,accel_drift_mg=1.0,100,22.229,2204.788,5337.631,20.795,1.579,51.000,885.000,0.000,34.955
+E3b,E3b_08,加计漂移 1.0 mg+恢复,accel_drift_mg=1.0 recovery=1,100,18.630,39.447,202.088,7.616,2.105,11.000,60.000,0.770,70.378
+E4,E4_01,时延0.25s 原实现,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 fix_delay=0.25 delay_corr=0,100,18.654,32.696,152.457,0.936,16.438,0.000,0.000,0.470,4.369
+E4,E4_02,时延0.25s 叠加修正,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 fix_delay=0.25 delay_corr=1,100,18.677,32.550,142.633,0.917,16.164,0.000,0.000,0.470,4.489
+E4,E4_03,时延1.0s 原实现,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 fix_delay=1.0 delay_corr=0,100,18.864,32.977,143.716,0.898,16.438,0.000,0.000,0.450,4.527
+E4,E4_04,时延1.0s 叠加修正,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 fix_delay=1.0 delay_corr=1,100,18.855,32.660,153.635,0.974,16.712,0.000,0.000,0.470,4.566
+E5,E5_01,错误匹配 5%,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 outlier_rate=0.05,100,17.449,27.981,103.245,0.980,9.474,8.000,30.000,0.000,3.588
+E5,E5_02,错误匹配 5%+恢复,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 outlier_rate=0.05 recovery=1,100,17.514,26.169,100.278,0.407,11.053,0.000,0.000,0.140,3.516
+E5,E5_03,错误匹配 10%,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 outlier_rate=0.1,100,18.501,94.956,338.140,3.114,13.151,14.000,168.000,0.000,4.636
+E5,E5_04,错误匹配 10%+恢复,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 outlier_rate=0.1 recovery=1,100,18.677,32.550,142.633,0.917,16.164,0.000,0.000,0.470,4.489
+E5,E5_05,错误匹配 20%,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 outlier_rate=0.2,100,21.270,131.074,453.845,5.743,14.003,24.000,228.000,0.000,6.279
+E5,E5_06,错误匹配 20%+恢复,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 outlier_rate=0.2 recovery=1,100,23.250,45.579,176.064,2.841,21.216,9.000,45.000,1.360,8.466
+E5,E5_07,错误匹配 30%,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 outlier_rate=0.3,100,27.377,136.119,506.388,8.792,15.055,41.000,240.000,0.000,8.764
+E5,E5_08,错误匹配 30%+恢复,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 outlier_rate=0.3 recovery=1,100,30.060,69.506,222.234,5.573,24.453,21.000,60.000,2.450,16.090
+E6,E6_01,间隔 15 s,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 fix_interval=15,100,15.069,24.858,130.170,0.501,5.642,2.000,0.000,0.230,3.799
+E6,E6_02,间隔 30 s,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 fix_interval=30,100,18.677,32.550,142.633,0.917,16.164,0.000,0.000,0.470,4.489
+E6,E6_03,间隔 60 s,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 fix_interval=60,100,26.345,48.565,232.166,1.845,31.953,3.000,0.000,0.320,5.800
+E6,E6_04,间隔 90 s,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 fix_interval=90,100,29.166,51.199,187.904,1.298,36.441,2.000,0.000,0.220,4.530

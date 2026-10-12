@@ -38,6 +38,8 @@ struct PositionFix {
   real lat = 0, lon = 0, h = 0;
   real sigma_ne = 10;   // 水平 1σ m
   real sigma_d = -1;    // 高度 1σ m，<0 表示不含高度
+  real yaw = NAN;       // 景象匹配给出的航向 rad，NaN 表示无
+  real sigma_yaw = 1.0 * kDeg;
   FixSource source = FixSource::kSceneMatch;
 };
 
