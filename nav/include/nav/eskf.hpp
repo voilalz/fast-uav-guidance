@@ -27,6 +27,13 @@ constexpr std::size_t P = 0, V = 3, TH = 6, BG = 9, BA = 12, W = 15, BB = 17, KV
 using StateVec = Mat<kN, 1>;
 using StateCov = Mat<kN, kN>;
 
+// 景象匹配（二维位置）量测的更新方式。kGate 为本文方法所用的固定 χ² 门限；其余为对比用的基线：
+//   kSageHusaR  Sage–Husa 型自适应量测噪声：按渐消记忆估计 R 的比例因子 α，S = HPHᵀ + αR，再做 χ² 门限
+//   kFading     新息驱动的协方差渐消（自适应 Q / 强跟踪型）：每次修正前按新息把运动学协方差放大 λ ≥ 1，再做门限
+//   kHuber      Huber M 估计：不设门限，按白化新息的 Huber 权重放大 R（迭代重加权）
+//   kStudentT   Student-t 量测噪声的变分贝叶斯更新：R_eff = R·(ν + NIS)/(ν + m)，不动点迭代，不设门限
+enum class FixUpdateMode : int { kGate = 0, kSageHusaR = 1, kFading = 2, kHuber = 3, kStudentT = 4 };
+
 struct EskfConfig {
   // IMU 噪声（按商用级 MEMS 偏保守取值，实际以 Allan 方差标定结果替换）
   real gyro_arw = 0.3 * kDeg / 60.0;        // rad/sqrt(s)  (0.3 deg/sqrt(h))
@@ -47,6 +54,13 @@ struct EskfConfig {
   bool est_baro_bias = true;
   bool est_vo_scale = true;
   bool est_mag_bias = true;
+  // 景象匹配位置量测的更新方式（对比实验用，见 FixUpdateMode）
+  FixUpdateMode fix_update = FixUpdateMode::kGate;
+  real sage_husa_b = 0.97;     // Sage–Husa 渐消因子
+  real fading_max = 100.0;     // 渐消因子上限
+  real huber_c = 1.345;        // Huber 阈值（白化新息）
+  real student_dof = 3.0;      // Student-t 自由度
+  int robust_iters = 3;        // Huber / Student-t 迭代次数
 };
 
 struct InitSigma {
@@ -100,6 +114,8 @@ class Eskf {
   Vec3 lastGyroCorrected() const { return last_gyro_; }
 
  private:
+  UpdateResult updatePosition2d(const Mat<2, 1>& r, const Mat<2, kN>& H, real sigma);
+  UpdateResult applyUpdate2d(const Mat<2, 1>& r, const Mat<2, kN>& H, const Mat<2, 2>& R, real nis);
   template <std::size_t M>
   UpdateResult update(const Mat<M, 1>& r, const Mat<M, kN>& H, const Mat<M, M>& R, real gate);
   void inject(const StateVec& dx);
@@ -113,6 +129,8 @@ class Eskf {
   int acc_n_ = 0;
   Vec3 last_gyro_;
   StateVec cum_dx_;
+  real sh_alpha_ = 1.0;  // Sage–Husa 量测噪声比例因子估计
+  int sh_k_ = 0;
 };
 
 }  // namespace nav

@@ -269,6 +269,66 @@ static void testSigmaFloor() {
   CHECK(e.accepted && !e.recovered);
 }
 
+// 自适应协方差下限：触发次数不足时不介入；连续 3 次无修正的尝试后启用，且不超过上界
+static void testAdaptiveSigmaFloor() {
+  NavCoreConfig cfg;
+  cfg.recovery.sigma_floor_rate = 2.0;
+  cfg.recovery.sigma_floor_trigger = 3;
+  cfg.recovery.sigma_floor_max = 40.0;
+  NavCore core(cfg);
+  NavState x;
+  x.lat = 30 * kDeg;
+  x.h = 1000;
+  core.init(x, InitSigma{});
+  ImuSample imu;
+  imu.accel = vec3(0, 0, -earth::gravity(x.lat, x.h));
+  NavOutput out;
+  for (int i = 0; i < 400 * 30; ++i) { imu.t_us += 2500; core.onImu(imu, out); }
+  const real s0 = core.filter().sigmaNe();
+  CHECK(s0 < 40);
+  core.noteFixAttempt();
+  core.noteFixAttempt();
+  core.applySigmaFloor(imu.t_us);
+  CHECK(std::fabs(core.filter().sigmaNe() - s0) < 1e-9);  // 未触发
+  core.noteFixAttempt();
+  CHECK(core.sigmaFloorArmed());
+  core.applySigmaFloor(imu.t_us);
+  CHECK(std::fabs(core.filter().sigmaNe() - 40) < 0.5);    // 2 m/s × 30 s = 60 m，被上界限制为 40 m
+}
+
+// 基线更新方式：Huber / Student-t 不设门限，大新息被降权而不是拒绝；Sage–Husa 与渐消仍设门限
+static void testBaselineUpdates() {
+  NavState x;
+  x.lat = 30 * kDeg;
+  x.h = 1000;
+  const real rn = earth::radii(x.lat).rn;
+  auto run = [&](FixUpdateMode m, real north_m, real& moved) {
+    EskfConfig c;
+    c.fix_update = m;
+    Eskf f(c);
+    f.init(x, InitSigma{});
+    PositionFix z;
+    z.lat = x.lat + north_m / rn;
+    z.lon = x.lon;
+    z.sigma_ne = 5;
+    const UpdateResult u = f.updatePosition(z, f.state());
+    moved = (f.state().lat - x.lat) * rn;
+    return u;
+  };
+  real d;
+  // 小新息：所有方式都接近标准 KF（P0 = R 时修正一半）
+  for (FixUpdateMode m : {FixUpdateMode::kSageHusaR, FixUpdateMode::kFading, FixUpdateMode::kHuber,
+                          FixUpdateMode::kStudentT}) {
+    CHECK(run(m, 4, d).accepted);
+    CHECK(d > 1.0 && d < 3.5);
+  }
+  // 200 m 新息（σ 5 m）：Huber 与 Student-t 接受但只移动一小部分
+  CHECK(run(FixUpdateMode::kHuber, 200, d).accepted && d > 0 && d < 30);
+  CHECK(run(FixUpdateMode::kStudentT, 200, d).accepted && d > 0 && d < 30);
+  // 渐消：先按新息放大协方差（λ ≤ 100），再在门限内接受，几乎全部修正
+  CHECK(run(FixUpdateMode::kFading, 100, d).accepted && d > 90);
+}
+
 int main() {
   testMath();
   testStrapdownStatic();
@@ -281,6 +341,8 @@ int main() {
   testInflate();
   testLockoutRecovery();
   testSigmaFloor();
+  testAdaptiveSigmaFloor();
+  testBaselineUpdates();
   std::printf("%s (%d failures)\n", g_fail ? "FAIL" : "PASS", g_fail);
   return g_fail ? 1 : 0;
 }

@@ -1,5 +1,7 @@
 #include "nav/nav_core.hpp"
 
+#include <algorithm>
+
 #include "nav/earth.hpp"
 
 namespace nav {
@@ -55,10 +57,15 @@ bool NavCore::ref(TimeUs t, NavState& out, MeasurementStats& st) const {
   return true;
 }
 
+bool NavCore::sigmaFloorArmed() const {
+  const LockoutRecoveryConfig& rc = cfg_.recovery;
+  return rc.sigma_floor_rate > 0 && (rc.sigma_floor_trigger <= 0 || attempts_since_fix_ >= rc.sigma_floor_trigger);
+}
+
 void NavCore::applySigmaFloor(TimeUs now) {
-  const real rate = cfg_.recovery.sigma_floor_rate;
-  if (rate <= 0) return;
-  const real floor = rate * static_cast<real>(now - last_fix_) * 1e-6;
+  if (!sigmaFloorArmed()) return;
+  real floor = cfg_.recovery.sigma_floor_rate * static_cast<real>(now - last_fix_) * 1e-6;
+  if (cfg_.recovery.sigma_floor_max > 0) floor = std::min(floor, cfg_.recovery.sigma_floor_max);
   const real s = eskf_.sigmaNe();
   // 只抬高水平位置方差，不放大速度/姿态：下限针对的是位置漂移量，放大整个运动学块会让随后的修正错误地拉动速度
   if (floor > s) eskf_.addHorizontalVariance(floor * floor - s * s);
@@ -75,6 +82,7 @@ void NavCore::onPositionFix(const PositionFix& z) {
   if (u.accepted) {
     ++fix_stats_.accepted;
     n_rej_ = 0;
+    attempts_since_fix_ = 0;
     last_fix_ = last_imu_;
     if (z.source == FixSource::kSceneMatch) last_scene_fix_ = last_imu_;
     health_ &= ~kHealthFixRejected;

@@ -16,6 +16,10 @@
 //   matched_recovery_sep  同上，但被拒修正需间隔 ≥ 3 s（视场不重叠）才计为独立证据
 //   *_window          搜索窗口下限：匹配器先验 σ ≥ 2 m/s × 距上次被接受修正的时间（滤波器协方差不变）
 //   *_floor           协方差下限：NavCore 把水平位置 σ 抬高到 2 m/s × 距上次被接受修正的时间（窗口与门限一起放大）
+//   *_afloor          自适应协方差下限：连续 10 次有覆盖的匹配尝试都没有被接受的修正才启用下限，
+//                     且下限不超过参考覆盖允许的 σ（3σ + 20 m ≤ 地图短边的一半）
+//   *_sh / *_fading / *_huber / *_studentt   对比基线：景象匹配更新改用 Sage–Husa 自适应 R、自适应渐消、
+//                     Huber M 估计、Student-t 变分贝叶斯（见 nav::FixUpdateMode），不用锁死恢复与下限
 //
 //   nav_demo [map=data/ahr_0.50m.map] [lat=50.53 lon=7.05] [max_prior=1000] [runs=8] [seed0=1] [threads=4]
 //            [out=results/demo/demo]
@@ -74,6 +78,22 @@ const std::vector<Variant>& allVariants() {
       {"matched_recovery_sep_floor",
        {{"filter_vo_scale_sigma", "0.01"}, {"filter_vo_scale_tau", "120"}, {"filter_accel_bias_rw", "4e-4"},
         {"recovery", "1"}, {"recovery_min_sep", "3"}, {"sigma_floor_rate", "2"}}},
+      // 自适应协方差下限（sigma_floor_max 在 main 中按地图覆盖补上）
+      {"original_afloor", {{"sigma_floor_rate", "2"}, {"sigma_floor_trigger", "10"}}},
+      {"original_recovery_sep_afloor",
+       {{"recovery", "1"}, {"recovery_min_sep", "3"}, {"sigma_floor_rate", "2"}, {"sigma_floor_trigger", "10"}}},
+      {"matched_recovery_sep_afloor",
+       {{"filter_vo_scale_sigma", "0.01"}, {"filter_vo_scale_tau", "120"}, {"filter_accel_bias_rw", "4e-4"},
+        {"recovery", "1"}, {"recovery_min_sep", "3"}, {"sigma_floor_rate", "2"}, {"sigma_floor_trigger", "10"}}},
+      // 基线：自适应 / 鲁棒滤波
+      {"original_sh", {{"fix_update", "1"}}},
+      {"original_fading", {{"fix_update", "2"}}},
+      {"original_huber", {{"fix_update", "3"}}},
+      {"original_studentt", {{"fix_update", "4"}}},
+      {"matched_sh", {{"filter_vo_scale_sigma", "0.01"}, {"filter_vo_scale_tau", "120"}, {"filter_accel_bias_rw", "4e-4"}, {"fix_update", "1"}}},
+      {"matched_fading", {{"filter_vo_scale_sigma", "0.01"}, {"filter_vo_scale_tau", "120"}, {"filter_accel_bias_rw", "4e-4"}, {"fix_update", "2"}}},
+      {"matched_huber", {{"filter_vo_scale_sigma", "0.01"}, {"filter_vo_scale_tau", "120"}, {"filter_accel_bias_rw", "4e-4"}, {"fix_update", "3"}}},
+      {"matched_studentt", {{"filter_vo_scale_sigma", "0.01"}, {"filter_vo_scale_tau", "120"}, {"filter_accel_bias_rw", "4e-4"}, {"fix_update", "4"}}},
   };
   return v;
 }
@@ -229,6 +249,9 @@ int main(int argc, char** argv) {
           if (v.name == o.variant) {
             for (const auto& [key, val] : v.params) sim::setParam(c, key, val);
             window_rate = v.window_rate;
+            // 自适应下限的上界：3σ + 20 m 不超过地图短边的一半（参考覆盖），且不超过匹配器先验上限
+            if (c.sigma_floor_trigger > 0 && c.sigma_floor_max <= 0)
+              c.sigma_floor_max = std::min((std::min(H, W) / 2 - 20.0) / 3.0, max_prior);
           }
         sim::Scenario sc = sc0;
         auto guid = std::make_shared<Guidance>(frame, na, ea, nb, eb);
@@ -238,7 +261,7 @@ int main(int argc, char** argv) {
         sc.fix_provider = [&, window_rate](real t, const nav::NavState& truth, const nav::NavState& est,
                                            real sigma_ne, real t_since_fix, nav::PositionFix& z, bool& outlier) {
           const vision::Pose tp = frame.pose(truth);
-          if (tp.n > 150 || tp.n < -H - 150 || tp.e < -150 || tp.e > W + 150) return false;
+          if (tp.n > 150 || tp.n < -H - 150 || tp.e < -150 || tp.e > W + 150) return -1;
           ++o.attempts;
           cv::Mat img, valid;
           renderer.render(tp, cam, img, valid, &rng);
@@ -249,7 +272,7 @@ int main(int argc, char** argv) {
           const vision::MatchResult r = matcher.match(img, valid, ep, prior);
           const real e = r.ok ? std::hypot(r.n - tp.n, r.e - tp.e) : NAN;
           o.log.push_back({t, r.stage, r.psr, r.sigma, e});
-          if (!r.ok) return false;
+          if (!r.ok) return 0;
           frame.toLatLon(r.n, r.e, z.lat, z.lon);
           z.sigma_ne = r.sigma;
           if (!std::isnan(r.dyaw)) {
@@ -257,7 +280,7 @@ int main(int argc, char** argv) {
             z.sigma_yaw = 0.3 * kDeg;
           }
           outlier = e > 30.0;
-          return true;
+          return 1;
         };
         o.res = sim::run(c, sc, true, false);
         std::fprintf(stderr, "  %-21s seed %3u  RMS %8.1f m  终值 %8.1f m  匹配 %d/%d  锁死 %d  恢复 %u\n",

@@ -46,3 +46,15 @@ E6,E6_01,间隔 15 s,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_s
 E6,E6_02,间隔 30 s,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 fix_interval=30,100,18.677,32.550,142.633,0.917,16.164,0.000,0.000,0.470,4.489
 E6,E6_03,间隔 60 s,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 fix_interval=60,100,26.345,48.565,232.166,1.845,31.953,3.000,0.000,0.320,5.800
 E6,E6_04,间隔 90 s,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 fix_interval=90,100,29.166,51.199,187.904,1.298,36.441,2.000,0.000,0.220,4.530
+E7,E7_01,原模型+Sage-Husa R,profile=realistic fix_update=1,100,156.988,640.476,1182.642,19.904,93.425,58.000,120.000,0.000,105.449
+E7,E7_02,原模型+自适应渐消,profile=realistic fix_update=2,100,49.749,194.200,1933.471,28.787,94.795,86.000,180.000,0.000,7838.836
+E7,E7_03,原模型+Huber,profile=realistic fix_update=3,100,93.567,157.098,391.019,15.969,100.000,64.000,120.000,0.000,181.966
+E7,E7_04,原模型+Student-t VB,profile=realistic fix_update=4,100,172.293,439.523,971.553,19.885,100.000,72.000,120.000,0.000,183.915
+E7,E7_05,原模型+协方差下限,profile=realistic recovery=1 sigma_floor_rate=2,100,56.163,803.427,3005.268,7.412,75.890,20.000,256.500,0.280,33.236
+E7,E7_06,原模型+自适应下限,profile=realistic recovery=1 sigma_floor_rate=2 sigma_floor_trigger=2,100,48.606,147.945,801.668,22.139,27.123,67.000,120.000,3.390,850.867
+E7,E7_07,匹配模型+Sage-Husa R,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 fix_update=1,100,24.232,31.710,99.048,0.019,83.288,0.000,0.000,0.000,3.168
+E7,E7_08,匹配模型+自适应渐消,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 fix_update=2,100,38.897,60.229,213.148,3.668,100.000,5.000,3.000,0.000,26.044
+E7,E7_09,匹配模型+Huber,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 fix_update=3,100,24.033,38.754,142.601,0.478,100.000,1.000,0.000,0.000,5.132
+E7,E7_10,匹配模型+Student-t VB,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 fix_update=4,100,19.378,30.860,113.569,0.172,100.000,0.000,0.000,0.000,3.866
+E7,E7_11,匹配模型+协方差下限,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 sigma_floor_rate=2,100,31.696,41.343,168.545,0.573,82.740,0.000,0.000,0.000,4.408
+E7,E7_12,匹配模型+自适应下限,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 sigma_floor_rate=2 sigma_floor_trigger=2,100,18.922,32.268,146.126,0.821,16.712,0.000,0.000,0.170,4.139

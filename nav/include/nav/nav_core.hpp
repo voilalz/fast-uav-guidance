@@ -44,6 +44,12 @@ struct LockoutRecoveryConfig {
   // 搜索窗口与 χ² 门限都由同一个协方差决定；只放大匹配器的搜索窗口而不放大协方差时，
   // 找到的正确修正仍会被门限拒绝（见 docs/demo.md 第 7 节）。0 表示不启用。
   real sigma_floor_rate = 0.0;
+  // 自适应协方差下限：只有在“有参考覆盖、尝试了匹配却没有被接受的修正”的关键帧连续达到该次数后才启用下限
+  // （noteFixAttempt 计数，被接受的绝对修正清零）。滤波器自信且匹配正常时下限不介入，避免无谓地放大窗口与门限。
+  // 0 表示始终启用（原实现）。
+  int sigma_floor_trigger = 0;
+  // 下限的上界 m（由参考库在航线附近的覆盖范围决定：3σ 窗口不应超出覆盖）；0 表示不限制
+  real sigma_floor_max = 0.0;
 };
 
 struct FixEvent {
@@ -84,6 +90,9 @@ class NavCore {
   // 按 recovery.sigma_floor_rate 施加协方差下限。在向视觉计算机发布 σ（决定搜索窗口）之前调用；
   // onPositionFix 也会先调用一次。
   void applySigmaFloor(TimeUs now);
+  // 一次有参考覆盖的景象匹配尝试（无论匹配器是否报告），用于自适应协方差下限的触发计数
+  void noteFixAttempt() { ++attempts_since_fix_; }
+  bool sigmaFloorArmed() const;
   void onVoVelocity(const VoVelocity& z);
   void onAirspeed(const Airspeed& z);
   void onBaro(const BaroAlt& z);
@@ -130,6 +139,7 @@ class NavCore {
   Rejected rej_[kMaxRejected];
   int n_rej_ = 0;
   std::uint32_t recoveries_ = 0;
+  int attempts_since_fix_ = 0;
 };
 
 }  // namespace nav

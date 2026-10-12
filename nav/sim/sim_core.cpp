@@ -86,7 +86,7 @@ bool setParam(SimConfig& c, const std::string& k, const std::string& v) {
   P(near_min) P(near_max) P(gap_start) P(gap_end) PB(fix_yaw) P(fix_yaw_noise_deg) P(fix_yaw_sigma_deg)
   PB(t3d) P(t3d_interval) P(t3d_first) P(t3d_delay) P(t3d_noise_ne) P(t3d_noise_d)
   PB(airspeed) PB(heading) P(wind_n) P(wind_e) P(baro_bias) P(mag_bias_deg) P(mag_noise_deg) P(mag_sigma_deg)
-  PB(est_baro_bias) PB(est_vo_scale) PB(est_mag_bias) P(filter_accel_bias_rw) P(filter_gyro_bias_rw) P(filter_vo_scale_rw) P(filter_vo_scale_sigma) P(filter_vo_scale_tau) PB(recovery) PB(delay_corr) PI(recovery_k) P(recovery_drift_rate) P(recovery_min_sep) P(sigma_floor_rate)
+  PB(est_baro_bias) PB(est_vo_scale) PB(est_mag_bias) P(filter_accel_bias_rw) P(filter_gyro_bias_rw) P(filter_vo_scale_rw) P(filter_vo_scale_sigma) P(filter_vo_scale_tau) PB(recovery) PB(delay_corr) PI(recovery_k) P(recovery_drift_rate) P(recovery_min_sep) P(sigma_floor_rate) PI(sigma_floor_trigger) P(sigma_floor_max) PI(fix_update)
 #undef P
 #undef PB
 #undef PI
@@ -117,7 +117,9 @@ std::string describe(const SimConfig& c) {
     << " fix_interval=" << c.fix_interval << " gap=[" << c.gap_start << "," << c.gap_end << "]"
     << " fix_yaw=" << c.fix_yaw << " mag_bias=" << c.mag_bias_deg << "deg"
     << " filter_ba_rw=" << c.filter_accel_bias_rw << " filter_vo(rw,sigma,tau)=" << c.filter_vo_scale_rw << "," << c.filter_vo_scale_sigma << ","
-    << c.filter_vo_scale_tau << " est(baro,vo,mag)=" << c.est_baro_bias << c.est_vo_scale << c.est_mag_bias << " delay_corr=" << c.delay_corr << " recovery=" << c.recovery;
+    << c.filter_vo_scale_tau << " est(baro,vo,mag)=" << c.est_baro_bias << c.est_vo_scale << c.est_mag_bias << " delay_corr=" << c.delay_corr << " recovery=" << c.recovery
+    << " floor(rate,trigger,max)=" << c.sigma_floor_rate << "," << c.sigma_floor_trigger << "," << c.sigma_floor_max
+    << " fix_update=" << c.fix_update;
   return o.str();
 }
 
@@ -183,6 +185,9 @@ Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose) 
   ncfg.recovery.drift_rate = cfg.recovery_drift_rate;
   ncfg.recovery.min_separation_s = cfg.recovery_min_sep;
   ncfg.recovery.sigma_floor_rate = cfg.sigma_floor_rate;
+  ncfg.recovery.sigma_floor_trigger = cfg.sigma_floor_trigger;
+  ncfg.recovery.sigma_floor_max = cfg.sigma_floor_max;
+  ncfg.eskf.fix_update = static_cast<FixUpdateMode>(cfg.fix_update);
   NavCore core(ncfg);
   core.init(x0, InitSigma{});
 
@@ -265,10 +270,13 @@ Result run(const SimConfig& cfg, const Scenario& sc, bool record, bool verbose) 
         z.t_us = t_us;
         z.source = FixSource::kSceneMatch;
         bool outlier = false;
-        if (sc.fix_provider(t, truth, core.filter().state(), core.filter().sigmaNe(), t - last_fix_accept_t, z,
-                            outlier))
+        const int got = sc.fix_provider(t, truth, core.filter().state(), core.filter().sigmaNe(),
+                                        t - last_fix_accept_t, z, outlier);
+        if (got >= 0) core.noteFixAttempt();
+        if (got > 0)
           q_fix.push_back({t_us + static_cast<TimeUs>(cfg.fix_delay * 1e6), z, outlier, truth.lat, truth.lon});
       } else if (!(t > cfg.gap_start && t < cfg.gap_end)) {
+        core.noteFixAttempt();
         const bool outlier = rng.u() < cfg.outlier_rate;
         real e_n, e_e;
         if (!outlier) {

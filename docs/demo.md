@@ -118,6 +118,8 @@ ANEES 1.7。每次飞越条带后，匹配模型的误差都回到 3–10 m，�
 
 ### 6.3 结果
 
+> 本节表格为最初 8 个种子的结果；16 个种子的统一重跑见第 7 节和 `results/demo_la/demo_summary.md`，结论不变。
+
 | 配置 | RMS 中位数 | RMS 95% | 终值误差中位数 | 锁死运行比例 | 最长锁死 | 正确匹配被拒 | 错误匹配被接受 | 位置 ANEES | 报告率 |
 |---|---|---|---|---|---|---|---|---|---|
 | 原模型 | 518 m | 1059 m | 928 m | 50% | 661 s | 25/183 | 9/82 | 376 | 8% |
@@ -152,19 +154,53 @@ RMS 从 18.8 m 升到 27.2 m、ANEES 降到 0.3：2 m/s 的下限对它过于保
 σ 无限增长。匹配模型加下限后 RMS 从 29.9 m 升到 96 m。因此下限需要以参考库在当前航线附近的覆盖范围为上界，
 覆盖不足时应改用沿航线的一维搜索或多假设匹配。
 
-## 7. 复现
+## 7. 统一重跑：自适应协方差下限与基线对比
+
+全部配置用同一版本代码重跑（Ahr 16 个种子，Louisiana 由 8 个增加到 16 个种子；OpenCV 4.6.0、GDAL 3.8.4），
+完整表格见 [`results/demo/demo_summary.md`](../results/demo/demo_summary.md) 与
+[`results/demo_la/demo_summary.md`](../results/demo_la/demo_summary.md)。Ahr 前五行与第 2 节相差不超过 0.4 m；
+Louisiana 的地图实际为 4.85 km × 17.0 km（`vision_build_map` 输出，第 6 节写的 5.5 km 为瓦片范围）。
+
+**自适应协方差下限**（`*_afloor`，见软件方案 §3.6）：连续 10 个有参考覆盖的关键帧都没有被接受的修正才启用下限，
+下限不超过 (地图短边/2 − 20 m)/3（Ahr 133 m，Louisiana 802 m）。
+
+| 区域 | 配置 | RMS 中位数 | RMS 95% | 终值误差中位数 |
+|---|---|---|---|---|
+| Louisiana | 原模型 | 518 m | 1067 m | 731 m |
+| Louisiana | 原模型 + 协方差下限 | 144 m | 580 m | 114 m |
+| Louisiana | 原模型 + 自适应下限 | 98.9 m | 311 m | 64.6 m |
+| Louisiana | 原模型 + 恢复 + 自适应下限 | 84.5 m | 221 m | 69.0 m |
+| Louisiana | 匹配模型 + 恢复 | 19.6 m | 25.7 m | 20.8 m |
+| Louisiana | 匹配模型 + 恢复 + 协方差下限 | 27.6 m | 37.2 m | 28.8 m |
+| Louisiana | 匹配模型 + 恢复 + 自适应下限 | 24.2 m | 31.9 m | 28.1 m |
+| Ahr | 原模型 / + 协方差下限 / + 自适应下限 | 619 / 651 / 418 m | 936 / 1063 / 872 m | 1029 / 1126 / 929 m |
+| Ahr | 匹配模型 + 恢复 / + 协方差下限 / + 自适应下限 | 30.0 / 96.1 / 29.7 m | 39.7 / 184 / 60.5 m | 51.6 / 205 / 42.5 m |
+
+- 自适应下限在两个区域都优于始终启用的下限：Louisiana 原模型 RMS 中位数 144 → 98.9 m（95% 分位 580 → 311 m），
+  匹配模型的代价从 +8.0 m 降到 +4.6 m；在 0.84 km 窄条带上不再有害（匹配模型 96.1 → 29.7 m），因为覆盖上界阻止了窗口超出参考区域。
+- 代价：自适应下限启用前要先经历 10 次失败的尝试，期间会出现短暂的门限锁死（Louisiana 原模型 44% 的运行出现锁死，但最长 5 s）；
+  Ahr 匹配模型的 95% 分位从 39.7 m 升到 60.5 m。
+
+**基线**（`*_sh / *_fading / *_huber / *_studentt`，不用恢复与下限）：
+
+- 原模型下没有一种基线能解开锁死：Louisiana RMS 中位数 415–571 m，Ahr 566–585 m，与原模型（518 / 619 m）同量级。
+  原因与第 3 节发现 (2) 相同：锁死首先发生在匹配器（报告率 10–12%），而这些方法只改变“找到之后怎么用”。
+- 匹配模型下，Student-t VB 与 Sage–Husa R 和本文的匹配模型 + 恢复相当（Louisiana 19.3 / 20.4 vs 19.6 m）；
+  Huber 中位数相近但尾部差（95% 分位 60 m），自适应渐消明显变差（68.3 m）。
+
+## 8. 复现
 
 ```bash
 cmake -B build && cmake --build build -j          # 需要 OpenCV（vision_build_map 另需 GDAL）
 tools/download_data.sh data && build/vision/vision_build_map data
 build/demo/nav_demo runs=16 threads=4 max_prior=400 out=results/demo/demo \
-    variants=original,original_recovery_sep,matched,matched_recovery,matched_recovery_sep,original_floor,matched_recovery_sep_floor
-python3 tools/plot_demo.py results/demo/demo                    # 4 核约 17 分钟
+    variants=original,original_recovery_sep,matched,matched_recovery,matched_recovery_sep,original_floor,matched_recovery_sep_floor,original_afloor,original_recovery_sep_afloor,matched_recovery_sep_afloor,original_sh,original_fading,original_huber,original_studentt,matched_sh,matched_fading,matched_huber,matched_studentt
+python3 tools/plot_demo.py results/demo/demo                    # 4 核约 50 分钟
 
-# Louisiana（第 6 节）：约 1 GB 数据，4 核约 25 分钟
+# Louisiana（第 6、7 节）：约 1.3 GB 数据，4 核约 1 小时 45 分钟
 tools/download_data.sh data/la la
 build/vision/vision_build_map data/la gsd=1 epsg=32615 out=data/la/la_1.00m.map
-build/demo/nav_demo map=data/la/la_1.00m.map lat=29.95 lon=-89.95 runs=8 threads=4 out=results/demo_la/demo \
-    variants=original,original_window,original_recovery_sep_window,original_floor,original_recovery_sep_floor,matched_recovery_sep,matched_recovery_sep_window,matched_recovery_sep_floor
+build/demo/nav_demo map=data/la/la_1.00m.map lat=29.95 lon=-89.95 runs=16 threads=4 out=results/demo_la/demo \
+    variants=original,original_window,original_recovery_sep_window,original_floor,original_recovery_sep_floor,matched_recovery_sep,matched_recovery_sep_window,matched_recovery_sep_floor,original_afloor,original_recovery_sep_afloor,matched_recovery_sep_afloor,original_sh,original_fading,original_huber,original_studentt,matched_sh,matched_fading,matched_huber,matched_studentt
 python3 tools/plot_demo.py results/demo_la/demo data/la/la_1.00m.map
 ```
