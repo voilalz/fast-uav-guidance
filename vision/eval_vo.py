@@ -53,6 +53,9 @@ def main():
     dt = 1 / RATE
     att_bias = np.radians([0.05, -0.05, 0.3])
     pos_err = rng.normal(0, 30, 2)
+    # 导航姿态误差为慢变过程（陀螺积分，帧间相对姿态非常准确），用一阶马尔可夫 σ 0.02°、τ 10 s
+    att_gm = np.zeros(3)
+    a_gm = np.exp(-dt / 10.0)
     vos = {m: DownwardVo(cam) for m in MODES}
     rows = {m: [] for m in MODES}
     k = 0
@@ -65,7 +68,8 @@ def main():
         pitch = np.radians(2.0) + np.radians(1.0) * np.sin(2 * np.pi * 0.2 * t)
         truth = Pose(n, e0, h, roll, pitch, np.pi)
         img, valid = render(src, grid.gsd, T, truth, cam, rng)
-        noise = rng.normal(0, np.radians(0.02), 3)
+        att_gm = a_gm * att_gm + rng.normal(0, np.radians(0.02) * np.sqrt(1 - a_gm ** 2), 3)
+        noise = att_gm
         est = Pose(n + pos_err[0], e0 + pos_err[1], h + 5.0, roll + att_bias[0] + noise[0],
                    pitch + att_bias[1] + noise[1], np.pi + att_bias[2] + noise[2])
         # 雷达高度表：沿机体 z 轴到真值地形的距离 + 1 m 噪声
@@ -103,8 +107,9 @@ def main():
             "scale_err_mean_pct": 100 * float(s.mean()),
             "scale_err_std_pct": 100 * float(s.std()),
             "scale_err_1s_std_pct": 100 * float(s1.std()),
-            "scale_corr_length_m": corr_length(s1, V),
-            "scale_corr_time_s": corr_length(s1, V) / V,
+            # 相关长度在 1 s 滑动平均序列上计算（滤除帧间白噪声）
+            "scale_corr_length_m": corr_length(np.convolve(s, np.ones(kk) / kk, "valid"), V / RATE),
+            "scale_corr_time_s": corr_length(np.convolve(s, np.ones(kk) / kk, "valid"), V / RATE) / V,
             "vb_err_rms": [float(np.sqrt(np.mean(x ** 2))) for x in (ex, ey, ez)],
             "reported_sigma_median": float(np.median([r["sigma"] for r in rows[m]])),
         }
@@ -123,7 +128,7 @@ def plot(rows, out):
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
     from experiments import C, INK2, style
     style(plt)
-    lab = {"radar": "雷达高度表（天底点离地高）", "dem_mean": "气压 − 足迹平均 DEM", "dem_ray": "逐点 DEM 射线求交"}
+    lab = {"radar": "雷达高度表（天底点离地高）", "dem_mean": "气压高度 - 足迹平均 DEM", "dem_ray": "逐点 DEM 射线求交"}
     fig, (ax, ax2) = plt.subplots(2, 1, figsize=(7, 4.6), sharex=True, gridspec_kw={"height_ratios": [2.2, 1]})
     for i, m in enumerate(MODES):
         d = np.array([r["dist"] for r in rows[m]]) / 1000

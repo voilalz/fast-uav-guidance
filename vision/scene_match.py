@@ -107,7 +107,7 @@ class SceneMatcher:
         search = 3 * prior_sigma + 20
         half = cfg.template_m / 2 + search
         ref, r0, c0 = self._ref_crop(n0, e0, half)
-        if (ref == 0).mean() > 0.3:
+        if (ref == 0).mean() > 0.6:
             res.stage, res.ms = "no_reference", (time.perf_counter() - t0) * 1e3
             return res
         A, T = _prep(ref, cfg.preprocess), _prep(tpl, cfg.preprocess, tm)
@@ -186,6 +186,7 @@ class SceneMatcher:
 
 def grade(r, gsd):
     """量测质量 -> 1σ，与 nav/apps/companion_main.cpp 中 gradeMatch 的形式一致（参数按跨时相评估结果整定）。"""
-    k = 1.0 + 30.0 / max(r.inliers, 1) + 3.0 / max(r.psr, 1.0)
-    base = 2.0 * gsd if r.stage == "fine" else 5.0 * gsd
-    return float(max(base * k, 3.0))
+    if r.stage == "fine":
+        return float(max(2.0 * gsd * (1.0 + 30.0 / max(r.inliers, 1)), 2.0))
+    # 粗匹配（NCC）：按跨时相评估整定，PSR 越低越不可靠；含参考库配准偏差
+    return float(max(gsd * (3.0 + 20.0 / max(r.psr, 1.0)), 3.0))

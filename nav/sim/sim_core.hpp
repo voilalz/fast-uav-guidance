@@ -57,6 +57,8 @@ struct SimConfig {
 
   // ---- 滤波器 ----
   bool est_baro_bias = true, est_vo_scale = true, est_mag_bias = true;
+  real filter_accel_bias_rw = 2e-5;                  // 滤波器假设的加计零偏随机游走 m/s^2/sqrt(s)
+  real filter_gyro_bias_rw = 0.5 * nav::kDeg / 3600.0 / 60.0;  // rad/s/sqrt(s)
   real filter_vo_scale_rw = 1e-5;                     // 滤波器假设的 VO 尺度随机游走
   real filter_vo_scale_sigma = 0, filter_vo_scale_tau = 0;  // >0 时滤波器按一阶马尔可夫建模 VO 尺度
   bool delay_corr = true;  // 时延量测参考状态叠加之后的修正量（false 为原实现）

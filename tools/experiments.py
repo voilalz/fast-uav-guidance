@@ -20,7 +20,9 @@ import sys
 import numpy as np
 
 REAL = "profile=realistic"
-GM = "filter_vo_scale_tau=120 filter_vo_scale_sigma=0.005"
+# 滤波器的马尔可夫尺度模型须同时覆盖常值部分（0.8%）与时变部分（0.5%）：σ ≈ 1%
+GM = "filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01"
+MATCHED = f"{GM} filter_accel_bias_rw=4e-4"
 
 # (实验组, 名称, 参数)
 EXPERIMENTS = [
@@ -32,24 +34,29 @@ EXPERIMENTS = [
     ("E1", "磁偏差未建模+恢复", "est_mag_bias=0 recovery=1"),
     ("E1", "VO 尺度未建模+恢复", "est_vo_scale=0 recovery=1"),
     ("E1", "磁偏差+尺度未建模+恢复", "est_mag_bias=0 est_vo_scale=0 recovery=1"),
-    # E2：更真实误差模型（时变 VO 尺度、零偏温漂、近距离错误匹配、真值子步）
-    ("E2", "随机游走尺度模型", REAL),
-    ("E2", "随机游走+恢复", f"{REAL} recovery=1"),
-    ("E2", "马尔可夫尺度模型", f"{REAL} {GM}"),
-    ("E2", "马尔可夫+恢复", f"{REAL} {GM} recovery=1"),
-    ("E2", "马尔可夫+恢复+匹配航向", f"{REAL} {GM} recovery=1 fix_yaw=1"),
+    # E2：更真实误差模型（时变 VO 尺度、零偏温漂、近距离错误匹配、真值子步）。
+    #     “原模型”沿用默认过程噪声；“匹配模型”= VO 尺度按马尔可夫建模 + 加计零偏过程噪声按温漂量级设定
+    ("E2", "原模型", REAL),
+    ("E2", "原模型+恢复", f"{REAL} recovery=1"),
+    ("E2", "仅尺度马尔可夫", f"{REAL} {GM}"),
+    ("E2", "匹配模型", f"{REAL} {MATCHED}"),
+    ("E2", "匹配模型+恢复", f"{REAL} {MATCHED} recovery=1"),
+    ("E2", "匹配模型+恢复+匹配航向", f"{REAL} {MATCHED} recovery=1 fix_yaw=1"),
     # E3：VO 尺度时变幅度（滤波器按随机游走建模）对锁死的影响
     *[("E3", f"尺度GM σ={s}{'+恢复' if r else ''}", f"vo_scale_gm_sigma={s}{' recovery=1' if r else ''}")
       for s in (0.001, 0.002, 0.003, 0.005, 0.01) for r in (0, 1)],
+    # E3b：加计零偏温漂幅度（滤波器按默认随机游走建模）对锁死的影响
+    *[("E3b", f"加计漂移 {d} mg{'+恢复' if r else ''}", f"accel_drift_mg={d}{' recovery=1' if r else ''}")
+      for d in (0.1, 0.25, 0.5, 1.0) for r in (0, 1)],
     # E4：时延量测参考状态（原实现 vs 叠加之后的修正量），时延 0.25 / 1.0 s
-    *[("E4", f"时延{d}s {'叠加修正' if c else '原实现'}", f"{REAL} {GM} fix_delay={d} delay_corr={c}")
+    *[("E4", f"时延{d}s {'叠加修正' if c else '原实现'}", f"{REAL} {MATCHED} recovery=1 fix_delay={d} delay_corr={c}")
       for d in (0.25, 1.0) for c in (0, 1)],
     # E5：近距离错误匹配比例 —— 恢复机制的误接风险
     *[("E5", f"错误匹配 {int(p*100)}%{'+恢复' if r else ''}",
-       f"{REAL} {GM} outlier_rate={p}{' recovery=1' if r else ''}")
+       f"{REAL} {MATCHED} outlier_rate={p}{' recovery=1' if r else ''}")
       for p in (0.05, 0.1, 0.2, 0.3) for r in (0, 1)],
     # E6：景象匹配间隔
-    *[("E6", f"间隔 {int(i)} s", f"{REAL} {GM} recovery=1 fix_interval={i}") for i in (15, 30, 60, 90)],
+    *[("E6", f"间隔 {int(i)} s", f"{REAL} {MATCHED} recovery=1 fix_interval={i}") for i in (15, 30, 60, 90)],
 ]
 
 
@@ -66,9 +73,13 @@ def run_all(bin_path, runs, out):
         counters[group] = counters.get(group, 0) + 1
         tag = slug(group, counters[group])
         prefix = os.path.join(raw, tag)
-        cmd = [bin_path, f"runs={runs}", f"out={prefix}"] + params.split()
-        print("运行", tag, name, flush=True)
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+        stamp = prefix + ".params"
+        key = f"runs={runs} {params}"
+        if not (os.path.exists(stamp) and open(stamp).read() == key and os.path.exists(prefix + "_runs.csv")):
+            cmd = [bin_path, f"runs={runs}", f"out={prefix}"] + params.split()
+            print("运行", tag, name, flush=True)
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+            open(stamp, "w").write(key)
         rows.append(summarize(group, tag, name, params, prefix))
     return rows
 
@@ -136,7 +147,7 @@ def style(plt):
         "axes.edgecolor": INK2, "axes.labelcolor": INK, "xtick.color": INK2, "ytick.color": INK2,
         "axes.grid": True, "grid.color": GRID, "grid.linewidth": 0.8, "axes.spines.top": False,
         "axes.spines.right": False, "lines.linewidth": 2, "figure.dpi": 150, "axes.unicode_minus": False,
-        "figure.facecolor": "#fcfcfb", "axes.facecolor": "#fcfcfb", "legend.frameon": False,
+        "mathtext.default": "regular", "figure.facecolor": "#fcfcfb", "axes.facecolor": "#fcfcfb", "legend.frameon": False,
     })
 
 
@@ -164,16 +175,17 @@ def plot(rows, out):
     ax.set_xlabel("时间 / min")
     ax.set_ylabel("水平位置误差 / m（Monte-Carlo 均值）")
     ax.axvspan(10, 12, color=GRID, alpha=0.6, linewidth=0)
-    ax.text(11, ax.get_ylim()[1] * 0.6, "无景象匹配区段", ha="center", color=INK2, fontsize=8)
-    ax.legend(fontsize=7, ncol=2, loc="upper left")
+    ax.text(11, ax.get_ylim()[0] * 1.15, "无景象匹配区段", ha="center", color=INK2, fontsize=8)
+    ax.legend(fontsize=7, ncol=2, loc="upper left", bbox_to_anchor=(0, 1.0))
+    ax.set_ylim(top=ax.get_ylim()[1] * 4)
     fig.tight_layout()
     fig.savefig(os.path.join(out, "fig_e1_lockout_timeseries.png"))
     plt.close(fig)
 
     # 图 2：E1/E2 位置 ANEES 时间序列
     fig, ax = plt.subplots(figsize=(7, 3.4))
-    for i, (g, n) in enumerate([("E1", "完整建模"), ("E1", "磁偏差未建模"), ("E2", "随机游走尺度模型"),
-                                ("E2", "马尔可夫+恢复")]):
+    for i, (g, n) in enumerate([("E1", "完整建模"), ("E1", "磁偏差未建模"), ("E2", "原模型"),
+                                ("E2", "匹配模型+恢复")]):
         t, d = series(out, by[(g, n)]["tag"])
         ax.plot(t / 60, d["anees_pos"], color=C[i], label=f"{g} {n}")
     ax.axhline(3, color=INK2, linewidth=1, linestyle=(0, (1, 2)))
@@ -186,19 +198,23 @@ def plot(rows, out):
     fig.savefig(os.path.join(out, "fig_anees.png"))
     plt.close(fig)
 
-    # 图 3：E3 尺度时变幅度 vs 发生锁死比例
+    # 图 3：时间相关误差幅度（滤波器过程噪声不变）vs 发生锁死的运行比例
+    fig, axs = plt.subplots(1, 2, figsize=(8.5, 3.3), sharey=True)
     sig = [0.001, 0.002, 0.003, 0.005, 0.01]
-    fig, ax = plt.subplots(figsize=(5.5, 3.4))
+    acc = [0.1, 0.25, 0.5, 1.0]
     for i, rec in enumerate(("", "+恢复")):
-        y = [by[("E3", f"尺度GM σ={s}{rec}")]["lockout_run_pct"] for s in sig]
-        ax.plot([s * 100 for s in sig], y, color=C[i], marker="o", markersize=5,
-                label="固定门限" if not rec else "固定门限 + 锁死恢复")
-    ax.set_xlabel("VO 尺度时变分量 1σ / %（τ = 120 s，滤波器按随机游走建模）")
-    ax.set_ylabel("发生锁死的运行 / %")
-    ax.set_ylim(-3, 103)
-    ax.legend(fontsize=8)
+        lab = "固定门限" if not rec else "固定门限 + 锁死恢复"
+        axs[0].plot([x * 100 for x in sig], [by[("E3", f"尺度GM σ={x}{rec}")]["lockout_run_pct"] for x in sig],
+                    color=C[i], marker="o", markersize=5, label=lab)
+        axs[1].plot(acc, [by[("E3b", f"加计漂移 {x} mg{rec}")]["lockout_run_pct"] for x in acc],
+                    color=C[i], marker="o", markersize=5, label=lab)
+    axs[0].set_xlabel("VO 尺度时变分量 1σ / %（τ = 120 s）")
+    axs[1].set_xlabel("加计零偏温漂 1σ / mg（τ = 300 s）")
+    axs[0].set_ylabel("发生锁死的运行 / %")
+    axs[0].set_ylim(-3, 103)
+    axs[0].legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(os.path.join(out, "fig_e3_scale_mismatch.png"))
+    fig.savefig(os.path.join(out, "fig_e3_mismatch.png"))
     plt.close(fig)
 
     # 图 4：E5 错误匹配比例 vs 误接率 / RMS
