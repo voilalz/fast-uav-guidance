@@ -64,7 +64,28 @@ def main():
             blur = V * exp_us * 1e-6 / gsd
             print(f"  f={f_mm:>2}mm 像元{pix_um:>5}µm GSD={gsd:5.2f}m 曝光{exp_us:>4}µs 运动模糊={blur:4.2f}px")
     print(f"  光流角速率 V/H = {V/H:.3f} rad/s；地面每帧位移 @10Hz = {V/10:.1f} m")
-    print("\n四、时间同步误差 -> 位置误差")
+    print("\n四、消费级 MEMS + 视觉里程计/空速辅助：两次绝对修正之间的水平误差 3σ（m）")
+    print("  误差 = 速度比例误差 + 航向误差(初值 + 陀螺 z 轴残余零偏积分) 投影到航程，再叠加上次修正残差")
+    for bz_dph in (10.0, 3.0):
+        for frac in (0.01, 0.02):
+            cells = []
+            for gap_km in (2, 5, 10, 20):
+                d = gap_km * 1000.0
+                t = d / V
+                dpsi = math.radians(0.3) + bz_dph * DEG_H * t  # 修正后航向残差 0.3°
+                along = frac * d
+                cross = dpsi * d / 2  # 航向误差线性增长时平均作用一半航程
+                sig = math.sqrt(along**2 + cross**2 + 15.0**2)
+                cells.append(f"{gap_km:>2}km→{3*sig:>5.0f}")
+            print(f"  z陀螺残余零偏 {bz_dph:>4.1f}°/h, VO 误差 {frac*100:.0f}%: " + "  ".join(cells))
+
+    print("\n五、运动恢复结构测高（下视相机 f=16mm，像元 3.45µm，视差精度 0.5px）")
+    fpx = 16e-3 / 3.45e-6
+    for dt in (0.25, 0.5, 1.0):
+        B = V * dt
+        print(f"  帧间隔 {dt:>4}s 基线 {B:5.0f}m B/H={B/H:4.2f} 地表高度精度≈{H**2/(B*fpx)*0.5:4.2f} m")
+
+    print("\n六、时间同步误差 -> 位置误差")
     for dt_ms in (0.1, 1, 5, 10, 50):
         print(f"  {dt_ms:>5} ms -> {V*dt_ms/1000:6.2f} m")
 
