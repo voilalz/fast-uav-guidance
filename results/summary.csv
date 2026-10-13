@@ -58,3 +58,15 @@ E7,E7_09,匹配模型+Huber,profile=realistic filter_vo_scale_tau=120 filter_vo_
 E7,E7_10,匹配模型+Student-t VB,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 fix_update=4,100,19.378,30.860,113.569,0.172,100.000,0.000,0.000,0.000,3.866
 E7,E7_11,匹配模型+协方差下限,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 sigma_floor_rate=2,100,31.696,41.343,168.545,0.573,82.740,0.000,0.000,0.000,4.408
 E7,E7_12,匹配模型+自适应下限,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 sigma_floor_rate=2 sigma_floor_trigger=2,100,18.922,32.268,146.126,0.821,16.712,0.000,0.000,0.170,4.139
+E8,E8_01,原模型+自适应下限 N=1 v=2,profile=realistic recovery=1 sigma_floor_rate=2 sigma_floor_trigger=1,100,51.842,122.561,630.281,8.596,83.562,13.000,60.000,0.470,35.665
+E8,E8_02,原模型+自适应下限 N=4 v=2,profile=realistic recovery=1 sigma_floor_rate=2 sigma_floor_trigger=4,100,48.947,110.923,747.846,26.476,27.945,77.000,136.500,5.890,1893.786
+E8,E8_03,原模型+自适应下限 N=2 v=1,profile=realistic recovery=1 sigma_floor_rate=1 sigma_floor_trigger=2,100,47.308,74.842,311.474,21.815,26.027,66.000,120.000,3.630,876.333
+E8,E8_04,原模型+自适应下限 N=2 v=4,profile=realistic recovery=1 sigma_floor_rate=4 sigma_floor_trigger=2,100,48.660,154.563,880.559,22.216,27.671,67.000,120.000,3.390,815.902
+E8,E8_05,匹配模型+自适应下限 N=1 v=2,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 sigma_floor_rate=2 sigma_floor_trigger=1,100,34.147,52.672,175.793,2.407,84.384,0.000,0.000,0.040,6.930
+E8,E8_06,匹配模型+自适应下限 N=4 v=2,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 sigma_floor_rate=2 sigma_floor_trigger=4,100,18.677,32.550,142.633,0.917,16.164,0.000,0.000,0.470,4.489
+E8,E8_07,匹配模型+自适应下限 N=2 v=1,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 sigma_floor_rate=1 sigma_floor_trigger=2,100,18.861,32.332,146.674,0.840,16.712,0.000,0.000,0.190,4.215
+E8,E8_08,匹配模型+自适应下限 N=2 v=4,profile=realistic filter_vo_scale_tau=120 filter_vo_scale_sigma=0.01 filter_accel_bias_rw=4e-4 recovery=1 sigma_floor_rate=4 sigma_floor_trigger=2,100,18.938,32.254,145.941,0.821,16.712,0.000,0.000,0.170,4.139
+E9,E9_01,原模型+恢复 间隔 15 s,profile=realistic recovery=1 fix_interval=15,100,35.825,76.289,449.242,18.758,15.233,80.000,120.000,7.460,1952.967
+E9,E9_02,原模型+恢复 间隔 15 s +自适应下限,profile=realistic recovery=1 fix_interval=15 sigma_floor_rate=2 sigma_floor_trigger=2,100,37.588,61.949,267.577,12.823,20.451,58.000,60.000,1.630,93.651
+E9,E9_03,原模型+恢复 间隔 60 s,profile=realistic recovery=1 fix_interval=60,100,60.446,1389.401,4341.765,32.994,40.237,56.000,540.000,5.340,1140.335
+E9,E9_04,原模型+恢复 间隔 60 s +自适应下限,profile=realistic recovery=1 fix_interval=60 sigma_floor_rate=2 sigma_floor_trigger=2,100,60.270,647.650,2480.212,31.865,40.237,54.000,243.000,5.150,1209.362

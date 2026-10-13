@@ -64,6 +64,14 @@ EXPERIMENTS = [
       for n, p in (("Sage-Husa R", "fix_update=1"), ("自适应渐消", "fix_update=2"), ("Huber", "fix_update=3"),
                    ("Student-t VB", "fix_update=4"), ("协方差下限", "recovery=1 sigma_floor_rate=2"),
                    ("自适应下限", "recovery=1 sigma_floor_rate=2 sigma_floor_trigger=2"))],
+    # E8：自适应下限的参数敏感性（触发次数 N、下限速率 v_f），原模型 / 匹配模型，均含恢复
+    *[("E8", f"{m}+自适应下限 N={n} v={v}",
+       f"{REAL}{' ' + MATCHED if m == '匹配模型' else ''} recovery=1 sigma_floor_rate={v} sigma_floor_trigger={n}")
+      for m in ("原模型", "匹配模型") for n, v in ((1, 2), (4, 2), (2, 1), (2, 4))],
+    # E9：修正间隔 15 / 60 s 下自适应下限的作用（原模型 + 恢复，对照无下限）
+    *[("E9", f"原模型+恢复 间隔 {i} s{' +自适应下限' if f else ''}",
+       f"{REAL} recovery=1 fix_interval={i}{' sigma_floor_rate=2 sigma_floor_trigger=2' if f else ''}")
+      for i in (15, 60) for f in (0, 1)],
 ]
 
 
