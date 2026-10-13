@@ -1,5 +1,8 @@
 #include "nav/eskf.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 #include "nav/earth.hpp"
 #include "nav/strapdown.hpp"
 
@@ -168,9 +171,93 @@ UpdateResult Eskf::updatePosition(const PositionFix& z, const NavState& ref) {
   Mat<2, 1> r;
   r[0] = d[0];
   r[1] = d[1];
+  if (z.source == FixSource::kSceneMatch && cfg_.fix_update != FixUpdateMode::kGate)
+    return updatePosition2d(r, H, z.sigma_ne);
   Mat<2, 2> R;
   R(0, 0) = R(1, 1) = z.sigma_ne * z.sigma_ne;
   return update<2>(r, H, R, cfg_.gate_pos);
+}
+
+UpdateResult Eskf::applyUpdate2d(const Mat<2, 1>& r, const Mat<2, kN>& H, const Mat<2, 2>& R, real nis) {
+  UpdateResult res;
+  res.nis = nis;
+  const Mat<kN, 2> PHt = P_ * H.t();
+  const Mat<2, 2> S = H * PHt + R;
+  Mat<2, 2> Si;
+  if (!inverse(S, Si)) return res;
+  const Mat<kN, 2> K = PHt * Si;
+  const StateCov IKH = StateCov::identity() - K * H;
+  P_ = IKH * P_ * IKH.t() + K * R * K.t();
+  inject(K * r);
+  res.accepted = true;
+  return res;
+}
+
+UpdateResult Eskf::updatePosition2d(const Mat<2, 1>& r, const Mat<2, kN>& H, real sigma) {
+  const real r0 = sigma * sigma;
+  const real rr = r[0] * r[0] + r[1] * r[1];
+  auto nisWith = [&](const Mat<2, 2>& R) {
+    const Mat<2, 2> S = H * P_ * H.t() + R;
+    Mat<2, 2> Si;
+    if (!inverse(S, Si)) return real(1e9);
+    return (r.t() * Si * r)(0, 0);
+  };
+  Mat<2, 2> R;
+  R(0, 0) = R(1, 1) = r0;
+  const real nis0 = nisWith(R);  // 名义 NIS（统计用）
+  const real p_mean = 0.5 * (P_(0, 0) + P_(1, 1));
+  switch (cfg_.fix_update) {
+    case FixUpdateMode::kSageHusaR: {
+      // 渐消记忆的 R 估计：α_k = (1−d_k)α_{k−1} + d_k·max((½|ν|² − p̄)/r0, α_min)，d_k = (1−b)/(1−b^{k+1})
+      const real b = cfg_.sage_husa_b;
+      const real d = (1 - b) / (1 - std::pow(b, ++sh_k_ + 1));
+      sh_alpha_ = (1 - d) * sh_alpha_ + d * std::max((0.5 * rr - p_mean) / r0, 0.1);
+      R(0, 0) = R(1, 1) = sh_alpha_ * r0;
+      const real nis = nisWith(R);
+      if (nis > cfg_.gate_pos) { UpdateResult u; u.nis = nis; return u; }
+      return applyUpdate2d(r, H, R, nis);
+    }
+    case FixUpdateMode::kFading: {
+      // 自适应渐消：λ = (½|ν|² − r0)/p̄（实际新息方差 / 预测新息方差中的状态部分），λ∈[1, λ_max]
+      const real lambda = std::clamp((0.5 * rr - r0) / std::max(p_mean, real(1e-6)), real(1), cfg_.fading_max);
+      if (lambda > 1) inflateKinematic(lambda);
+      const real nis = nisWith(R);
+      if (nis > cfg_.gate_pos) { UpdateResult u; u.nis = nis; return u; }
+      return applyUpdate2d(r, H, R, nis);
+    }
+    case FixUpdateMode::kHuber: {
+      // 迭代重加权：白化新息分量 e_i = ν_i/√S_ii，w_i = min(1, c/|e_i|)，R_ii ← r0/w_i
+      Mat<2, 2> Rw = R;
+      for (int it = 0; it < cfg_.robust_iters; ++it) {
+        const Mat<2, 2> S = H * P_ * H.t() + Rw;
+        for (int i = 0; i < 2; ++i) {
+          const real e = std::fabs(r[i]) / std::sqrt(S(i, i));
+          const real w = e <= cfg_.huber_c ? 1.0 : cfg_.huber_c / e;
+          Rw(i, i) = r0 / w;
+        }
+      }
+      return applyUpdate2d(r, H, Rw, nis0);
+    }
+    case FixUpdateMode::kStudentT: {
+      // 变分贝叶斯（Student-t 量测噪声，R 的尺度服从逆 Gamma）：
+      //   γ = E[(z − Hx)ᵀ R0⁻¹ (z − Hx)] = r⁺ᵀ r⁺ / r0 + tr(H P⁺ Hᵀ) / r0，R_eff = R0·(ν + γ)/(ν + m)
+      // r⁺ = r − A S⁻¹ r，H P⁺ Hᵀ = A − A S⁻¹ A，A = H P Hᵀ，S = A + R_eff
+      const real nu = cfg_.student_dof;
+      const Mat<2, 2> A = H * P_ * H.t();
+      Mat<2, 2> Rt = R;
+      for (int it = 0; it < cfg_.robust_iters; ++it) {
+        Mat<2, 2> Si;
+        if (!inverse(A + Rt, Si)) break;
+        const Mat<2, 1> rp = r - A * (Si * r);
+        const Mat<2, 2> Pp = A - A * Si * A;
+        const real gamma = (rp[0] * rp[0] + rp[1] * rp[1] + Pp(0, 0) + Pp(1, 1)) / r0;
+        Rt(0, 0) = Rt(1, 1) = r0 * (nu + gamma) / (nu + 2);
+      }
+      return applyUpdate2d(r, H, Rt, nis0);
+    }
+    default:
+      return update<2>(r, H, R, cfg_.gate_pos);
+  }
 }
 
 bool Eskf::positionInnovation(const PositionFix& z, const NavState& ref, Vec2& r, Mat<2, 2>& S) const {

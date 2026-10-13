@@ -45,3 +45,7 @@ add_test(NAME unit COMMAND nav_tests)
 add_test(NAME closed_loop_sim COMMAND nav_sim 1200 1)
 add_test(NAME mcu_app_host COMMAND nav_mcu_host)
 add_test(NAME companion_host COMMAND nav_companion_host)
+
+# 计算耗时与内存基准（不进 ctest）
+add_executable(nav_bench bench/nav_bench.cpp)
+target_link_libraries(nav_bench navcore)

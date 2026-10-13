@@ -1,0 +1,10 @@
+variant,passes,entry_err_median,first_fix_median_s,first_fix_p95_s,no_fix_pass_pct,lost_passes,lost_pass_pct,recovery_median_s,recovery_p95_s,unrecovered_pct,recovered_median_s,recovered_p95_s
+original,64,222.5,101.0,101.0,70.3,49,76.6,101.0,101.0,89.8,17.0,66.6
+original_window,64,211.5,101.0,101.0,71.9,49,76.6,101.0,101.0,91.8,15.5,35.1
+matched_recovery_sep,64,33.5,9.2,12.6,3.1,10,15.6,6.0,72.2,10.0,2.0,26.2
+original_floor,64,94.8,46.2,94.7,6.2,44,68.8,59.0,94.9,6.8,59.0,60.0
+original_afloor,64,111.6,33.8,59.2,1.6,42,65.6,59.0,60.0,2.4,59.0,60.0
+original_recovery_sep_afloor,64,97.3,33.8,61.8,0.0,41,64.1,59.0,60.0,0.0,59.0,60.0
+matched_recovery_sep_afloor,64,33.5,7.2,22.6,0.0,8,12.5,8.0,14.0,0.0,8.0,14.0
+original_huber,64,195.6,101.0,101.0,64.1,49,76.6,101.0,101.0,79.6,15.0,69.5
+original_studentt,64,208.3,101.0,101.0,64.1,48,75.0,101.0,101.0,85.4,18.0,63.1

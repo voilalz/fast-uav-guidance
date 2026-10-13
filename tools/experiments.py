@@ -57,6 +57,21 @@ EXPERIMENTS = [
       for p in (0.05, 0.1, 0.2, 0.3) for r in (0, 1)],
     # E6：景象匹配间隔
     *[("E6", f"间隔 {int(i)} s", f"{REAL} {MATCHED} recovery=1 fix_interval={i}") for i in (15, 30, 60, 90)],
+    # E7：基线对比（更真实误差模型）。景象匹配更新方式 fix_update：1 Sage–Husa 自适应 R，2 自适应渐消，
+    #     3 Huber M 估计，4 Student-t 变分贝叶斯（后两者不设门限）；以及协方差下限（始终启用 / 自适应触发）
+    *[("E7", f"{m}+{n}", f"{REAL}{' ' + MATCHED if m == '匹配模型' else ''} {p}")
+      for m in ("原模型", "匹配模型")
+      for n, p in (("Sage-Husa R", "fix_update=1"), ("自适应渐消", "fix_update=2"), ("Huber", "fix_update=3"),
+                   ("Student-t VB", "fix_update=4"), ("协方差下限", "recovery=1 sigma_floor_rate=2"),
+                   ("自适应下限", "recovery=1 sigma_floor_rate=2 sigma_floor_trigger=2"))],
+    # E8：自适应下限的参数敏感性（触发次数 N、下限速率 v_f），原模型 / 匹配模型，均含恢复
+    *[("E8", f"{m}+自适应下限 N={n} v={v}",
+       f"{REAL}{' ' + MATCHED if m == '匹配模型' else ''} recovery=1 sigma_floor_rate={v} sigma_floor_trigger={n}")
+      for m in ("原模型", "匹配模型") for n, v in ((1, 2), (4, 2), (2, 1), (2, 4))],
+    # E9：修正间隔 15 / 60 s 下自适应下限的作用（原模型 + 恢复，对照无下限）
+    *[("E9", f"原模型+恢复 间隔 {i} s{' +自适应下限' if f else ''}",
+       f"{REAL} recovery=1 fix_interval={i}{' sigma_floor_rate=2 sigma_floor_trigger=2' if f else ''}")
+      for i in (15, 60) for f in (0, 1)],
 ]
 
 

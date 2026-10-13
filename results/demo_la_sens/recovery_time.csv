@@ -1,0 +1,5 @@
+variant,passes,entry_err_median,first_fix_median_s,first_fix_p95_s,no_fix_pass_pct,lost_passes,lost_pass_pct,recovery_median_s,recovery_p95_s,unrecovered_pct,recovered_median_s,recovered_p95_s
+original_afloor_n5,64,115.4,36.2,40.2,0.0,45,70.3,10.0,40.8,0.0,10.0,40.8
+original_afloor_n20,64,103.9,39.2,52.2,1.6,43,67.2,40.0,53.0,2.3,40.0,53.0
+matched_recovery_sep_afloor_n5,64,33.5,36.2,39.2,0.0,9,14.1,37.0,40.6,0.0,37.0,40.6
+matched_recovery_sep_afloor_n20,64,32.9,36.2,39.2,0.0,10,15.6,37.0,40.5,0.0,37.0,40.5

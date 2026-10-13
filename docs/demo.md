@@ -118,6 +118,8 @@ ANEES 1.7。每次飞越条带后，匹配模型的误差都回到 3–10 m，�
 
 ### 6.3 结果
 
+> 本节表格为最初 8 个种子的结果；16 个种子的统一重跑见第 7 节和 `results/demo_la/demo_summary.md`，结论不变。
+
 | 配置 | RMS 中位数 | RMS 95% | 终值误差中位数 | 锁死运行比例 | 最长锁死 | 正确匹配被拒 | 错误匹配被接受 | 位置 ANEES | 报告率 |
 |---|---|---|---|---|---|---|---|---|---|
 | 原模型 | 518 m | 1059 m | 928 m | 50% | 661 s | 25/183 | 9/82 | 376 | 8% |
@@ -152,19 +154,88 @@ RMS 从 18.8 m 升到 27.2 m、ANEES 降到 0.3：2 m/s 的下限对它过于保
 σ 无限增长。匹配模型加下限后 RMS 从 29.9 m 升到 96 m。因此下限需要以参考库在当前航线附近的覆盖范围为上界，
 覆盖不足时应改用沿航线的一维搜索或多假设匹配。
 
-## 7. 复现
+## 7. 统一重跑：自适应协方差下限与基线对比
+
+全部配置用同一版本代码重跑（Ahr 16 个种子，Louisiana 由 8 个增加到 16 个种子；OpenCV 4.6.0、GDAL 3.8.4），
+完整表格见 [`results/demo/demo_summary.md`](../results/demo/demo_summary.md) 与
+[`results/demo_la/demo_summary.md`](../results/demo_la/demo_summary.md)。Ahr 前五行与第 2 节相差不超过 0.4 m；
+Louisiana 的地图实际为 4.85 km × 17.0 km（`vision_build_map` 输出，第 6 节写的 5.5 km 为瓦片范围）。
+
+**自适应协方差下限**（`*_afloor`，见软件方案 §3.6）：连续 10 个有参考覆盖的关键帧都没有被接受的修正才启用下限，
+下限不超过 (地图短边/2 − 20 m)/3（Ahr 133 m，Louisiana 802 m）。
+
+| 区域 | 配置 | RMS 中位数 | RMS 95% | 终值误差中位数 |
+|---|---|---|---|---|
+| Louisiana | 原模型 | 518 m | 1067 m | 731 m |
+| Louisiana | 原模型 + 协方差下限 | 144 m | 580 m | 114 m |
+| Louisiana | 原模型 + 自适应下限 | 98.9 m | 311 m | 64.6 m |
+| Louisiana | 原模型 + 恢复 + 自适应下限 | 84.5 m | 221 m | 69.0 m |
+| Louisiana | 匹配模型 + 恢复 | 19.6 m | 25.7 m | 20.8 m |
+| Louisiana | 匹配模型 + 恢复 + 协方差下限 | 27.6 m | 37.2 m | 28.8 m |
+| Louisiana | 匹配模型 + 恢复 + 自适应下限 | 24.2 m | 31.9 m | 28.1 m |
+| Ahr | 原模型 / + 协方差下限 / + 自适应下限 | 619 / 651 / 418 m | 936 / 1063 / 872 m | 1029 / 1126 / 929 m |
+| Ahr | 匹配模型 + 恢复 / + 协方差下限 / + 自适应下限 | 30.0 / 96.1 / 29.7 m | 39.7 / 184 / 60.5 m | 51.6 / 205 / 42.5 m |
+
+- 自适应下限在两个区域都优于始终启用的下限：Louisiana 原模型 RMS 中位数 144 → 98.9 m（95% 分位 580 → 311 m），
+  匹配模型的代价从 +8.0 m 降到 +4.6 m；在 0.84 km 窄条带上不再有害（匹配模型 96.1 → 29.7 m），因为覆盖上界阻止了窗口超出参考区域。
+- 代价：自适应下限启用前要先经历 10 次失败的尝试，期间会出现短暂的门限锁死（Louisiana 原模型 44% 的运行出现锁死，但最长 5 s）；
+  Ahr 匹配模型的 95% 分位从 39.7 m 升到 60.5 m。
+
+**基线**（`*_sh / *_fading / *_huber / *_studentt`，不用恢复与下限）：
+
+- 原模型下没有一种基线能解开锁死：Louisiana RMS 中位数 415–571 m，Ahr 566–585 m，与原模型（518 / 619 m）同量级。
+  原因与第 3 节发现 (2) 相同：锁死首先发生在匹配器（报告率 10–12%），而这些方法只改变“找到之后怎么用”。
+- 匹配模型下，Student-t VB 与 Sage–Husa R 和本文的匹配模型 + 恢复相当（Louisiana 19.3 / 20.4 vs 19.6 m）；
+  Huber 中位数相近但尾部差（95% 分位 60 m），自适应渐消明显变差（68.3 m）。
+
+## 7b. 独立航线、重新捕获时间与触发次数（第二版）
+
+**独立航线。** `route_offset=±1200` 把南北向航线横向平移 1200 m（A：西侧，B：东侧），其余设置与第 7 节相同，各 16 个种子；
+覆盖上界随之缩为 (min(H,W)/2 − |offset| − 20)/3 = 401 m。结果见 `results/demo_la_route_{a,b}/`。
+
+| 配置 | 中心 | 航线 A | 航线 B | 三条合计（48 次）中位数 / 95% |
+|---|---|---|---|---|
+| 原模型 | 518 | 490 | 502 | 502 / 1117 m |
+| 原模型 + 协方差下限 | 144 | 101 | 124 | 117 / 596 m |
+| 原模型 + 自适应下限 | 98.9 | 124 | 117 | 116 / 487 m |
+| 原模型 + 恢复 + 自适应下限 | 84.5 | 124 | 110 | 107.5 / 465 m |
+| 原模型 + Huber / Student-t | — | 354 / 482 | — | 510 / 507 m |
+| 匹配模型 + 恢复 | 19.6 | 25.6 | 17.6 | 20.3 / 61.9 m（最大 342 m） |
+| 匹配模型 + 恢复 + 自适应下限 | 24.2 | 29.7 | 23.0 | 25.8 / 38.2 m（最大 63 m） |
+
+**重新捕获时间**（`tools/recovery_time.py`）：一次“通过”是航线在参考图上方连续 ≥ 20 s 的一段；进入时误差 > 50 m 记为失锁，
+通过内误差回到 < 50 m 记为恢复，恢复时间从进入时刻算起。三条航线合计：原模型 146/192 次通过失锁，其中 90% 未恢复；
+自适应下限失锁 130/192 次，仅 2.3% 未恢复，恢复时间中位数 37 s（95% 分位 60 s）；协方差下限同为 2.3%，中位数 14 s；
+Huber 81%、Student-t 83% 未恢复；匹配模型 + 恢复 10% 未恢复，加自适应下限后为 0%。
+
+**触发次数 N**（中心航线，`*_afloor_n5 / _n20`，结果见 `results/demo_la_sens/`）：原模型 N = 5 / 10 / 20 时 RMS 中位数
+141 / 98.9 / 149 m；匹配模型 26.2 / 24.2 / 24.4 m。N 在 2 倍范围内变化时仍保持在 150 m 以下，但最优值与航线纹理有关。
+
+**结论。** 宽地图上，自适应下限与始终启用的下限中位数相近（116 vs 117 m）；自适应下限的优势在于窄条带（Ahr）与
+保护匹配模型的尾部（最大 342 → 63 m），代价是匹配模型中位数增加约 5 m。
+
+复现：
+
+```bash
+V=original,original_window,original_floor,original_afloor,original_recovery_sep_afloor,original_huber,original_studentt,matched_recovery_sep,matched_recovery_sep_afloor
+build/demo/nav_demo map=data/la/la_1.00m.map lat=29.95 lon=-89.95 runs=16 threads=4 route_offset=-1200 \
+    out=results/demo_la_route_a/demo variants=$V          # 航线 B：route_offset=1200
+python3 tools/recovery_time.py --map data/la/la_1.00m.map --dir results/demo_la_route_a
+```
+
+## 8. 复现
 
 ```bash
 cmake -B build && cmake --build build -j          # 需要 OpenCV（vision_build_map 另需 GDAL）
 tools/download_data.sh data && build/vision/vision_build_map data
 build/demo/nav_demo runs=16 threads=4 max_prior=400 out=results/demo/demo \
-    variants=original,original_recovery_sep,matched,matched_recovery,matched_recovery_sep,original_floor,matched_recovery_sep_floor
-python3 tools/plot_demo.py results/demo/demo                    # 4 核约 17 分钟
+    variants=original,original_recovery_sep,matched,matched_recovery,matched_recovery_sep,original_floor,matched_recovery_sep_floor,original_afloor,original_recovery_sep_afloor,matched_recovery_sep_afloor,original_sh,original_fading,original_huber,original_studentt,matched_sh,matched_fading,matched_huber,matched_studentt
+python3 tools/plot_demo.py results/demo/demo                    # 4 核约 50 分钟
 
-# Louisiana（第 6 节）：约 1 GB 数据，4 核约 25 分钟
+# Louisiana（第 6、7 节）：约 1.3 GB 数据，4 核约 1 小时 45 分钟
 tools/download_data.sh data/la la
 build/vision/vision_build_map data/la gsd=1 epsg=32615 out=data/la/la_1.00m.map
-build/demo/nav_demo map=data/la/la_1.00m.map lat=29.95 lon=-89.95 runs=8 threads=4 out=results/demo_la/demo \
-    variants=original,original_window,original_recovery_sep_window,original_floor,original_recovery_sep_floor,matched_recovery_sep,matched_recovery_sep_window,matched_recovery_sep_floor
+build/demo/nav_demo map=data/la/la_1.00m.map lat=29.95 lon=-89.95 runs=16 threads=4 out=results/demo_la/demo \
+    variants=original,original_window,original_recovery_sep_window,original_floor,original_recovery_sep_floor,matched_recovery_sep,matched_recovery_sep_window,matched_recovery_sep_floor,original_afloor,original_recovery_sep_afloor,matched_recovery_sep_afloor,original_sh,original_fading,original_huber,original_studentt,matched_sh,matched_fading,matched_huber,matched_studentt
 python3 tools/plot_demo.py results/demo_la/demo data/la/la_1.00m.map
 ```

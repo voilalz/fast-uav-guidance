@@ -19,16 +19,27 @@ from experiments import C, INK2, style  # noqa: E402
 
 VARIANTS = ("original", "original_recovery_sep", "original_window", "original_recovery_sep_window", "matched",
             "matched_recovery", "matched_recovery_sep", "matched_recovery_sep_window", "original_floor",
-            "original_recovery_sep_floor", "matched_recovery_sep_floor")
+            "original_recovery_sep_floor", "matched_recovery_sep_floor", "original_afloor",
+            "original_recovery_sep_afloor", "matched_recovery_sep_afloor", "original_sh", "original_fading",
+            "original_huber", "original_studentt", "matched_sh", "matched_fading", "matched_huber", "matched_studentt")
 LABEL = {"original": "原模型", "original_recovery_sep": "原模型 + 恢复（间隔 3 s）",
          "original_window": "原模型 + 窗口下限", "original_recovery_sep_window": "原模型 + 恢复 + 窗口下限",
          "matched": "匹配模型", "matched_recovery": "匹配模型 + 恢复（K=2）",
          "matched_recovery_sep": "匹配模型 + 恢复（间隔 3 s）", "matched_recovery_sep_window": "匹配模型 + 恢复 + 窗口下限",
          "original_floor": "原模型 + 协方差下限", "original_recovery_sep_floor": "原模型 + 恢复 + 协方差下限",
-         "matched_recovery_sep_floor": "匹配模型 + 恢复 + 协方差下限"}
+         "matched_recovery_sep_floor": "匹配模型 + 恢复 + 协方差下限",
+         "original_afloor": "原模型 + 自适应下限", "original_recovery_sep_afloor": "原模型 + 恢复 + 自适应下限",
+         "matched_recovery_sep_afloor": "匹配模型 + 恢复 + 自适应下限",
+         "original_sh": "原模型 + Sage–Husa R", "original_fading": "原模型 + 自适应渐消",
+         "original_huber": "原模型 + Huber", "original_studentt": "原模型 + Student-t VB",
+         "matched_sh": "匹配模型 + Sage–Husa R", "matched_fading": "匹配模型 + 自适应渐消",
+         "matched_huber": "匹配模型 + Huber", "matched_studentt": "匹配模型 + Student-t VB"}
 COLOR = {"original": C[1], "original_recovery_sep": C[4], "original_window": C[4], "original_recovery_sep_window": C[2],
          "matched": C[3], "matched_recovery": C[2], "matched_recovery_sep": C[0], "matched_recovery_sep_window": C[3],
-         "original_floor": C[5], "original_recovery_sep_floor": C[2], "matched_recovery_sep_floor": C[3]}
+         "original_floor": C[5], "original_recovery_sep_floor": C[2], "matched_recovery_sep_floor": C[3],
+         **{v: C[5] for v in ("original_afloor", "original_recovery_sep_afloor", "matched_recovery_sep_afloor",
+                               "original_sh", "original_fading", "original_huber", "original_studentt", "matched_sh",
+                               "matched_fading", "matched_huber", "matched_studentt")}}
 
 
 def load(path):
