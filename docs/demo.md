@@ -188,6 +188,41 @@ Louisiana 的地图实际为 4.85 km × 17.0 km（`vision_build_map` 输出，�
 - 匹配模型下，Student-t VB 与 Sage–Husa R 和本文的匹配模型 + 恢复相当（Louisiana 19.3 / 20.4 vs 19.6 m）；
   Huber 中位数相近但尾部差（95% 分位 60 m），自适应渐消明显变差（68.3 m）。
 
+## 7b. 独立航线、重新捕获时间与触发次数（第二版）
+
+**独立航线。** `route_offset=±1200` 把南北向航线横向平移 1200 m（A：西侧，B：东侧），其余设置与第 7 节相同，各 16 个种子；
+覆盖上界随之缩为 (min(H,W)/2 − |offset| − 20)/3 = 401 m。结果见 `results/demo_la_route_{a,b}/`。
+
+| 配置 | 中心 | 航线 A | 航线 B | 三条合计（48 次）中位数 / 95% |
+|---|---|---|---|---|
+| 原模型 | 518 | 490 | 502 | 502 / 1117 m |
+| 原模型 + 协方差下限 | 144 | 101 | 124 | 117 / 596 m |
+| 原模型 + 自适应下限 | 98.9 | 124 | 117 | 116 / 487 m |
+| 原模型 + 恢复 + 自适应下限 | 84.5 | 124 | 110 | 107.5 / 465 m |
+| 原模型 + Huber / Student-t | — | 354 / 482 | — | 510 / 507 m |
+| 匹配模型 + 恢复 | 19.6 | 25.6 | 17.6 | 20.3 / 61.9 m（最大 342 m） |
+| 匹配模型 + 恢复 + 自适应下限 | 24.2 | 29.7 | 23.0 | 25.8 / 38.2 m（最大 63 m） |
+
+**重新捕获时间**（`tools/recovery_time.py`）：一次“通过”是航线在参考图上方连续 ≥ 20 s 的一段；进入时误差 > 50 m 记为失锁，
+通过内误差回到 < 50 m 记为恢复，恢复时间从进入时刻算起。三条航线合计：原模型 146/192 次通过失锁，其中 90% 未恢复；
+自适应下限失锁 130/192 次，仅 2.3% 未恢复，恢复时间中位数 37 s（95% 分位 60 s）；协方差下限同为 2.3%，中位数 14 s；
+Huber 81%、Student-t 83% 未恢复；匹配模型 + 恢复 10% 未恢复，加自适应下限后为 0%。
+
+**触发次数 N**（中心航线，`*_afloor_n5 / _n20`，结果见 `results/demo_la_sens/`）：原模型 N = 5 / 10 / 20 时 RMS 中位数
+141 / 98.9 / 149 m；匹配模型 26.2 / 24.2 / 24.4 m。N 在 2 倍范围内变化时仍保持在 150 m 以下，但最优值与航线纹理有关。
+
+**结论。** 宽地图上，自适应下限与始终启用的下限中位数相近（116 vs 117 m）；自适应下限的优势在于窄条带（Ahr）与
+保护匹配模型的尾部（最大 342 → 63 m），代价是匹配模型中位数增加约 5 m。
+
+复现：
+
+```bash
+V=original,original_window,original_floor,original_afloor,original_recovery_sep_afloor,original_huber,original_studentt,matched_recovery_sep,matched_recovery_sep_afloor
+build/demo/nav_demo map=data/la/la_1.00m.map lat=29.95 lon=-89.95 runs=16 threads=4 route_offset=-1200 \
+    out=results/demo_la_route_a/demo variants=$V          # 航线 B：route_offset=1200
+python3 tools/recovery_time.py --map data/la/la_1.00m.map --dir results/demo_la_route_a
+```
+
 ## 8. 复现
 
 ```bash
