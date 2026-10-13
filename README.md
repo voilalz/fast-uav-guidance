@@ -1,5 +1,7 @@
 # fast-uav-guidance
 
+[![CI](https://github.com/voilalz/fast-uav-guidance/actions/workflows/ci.yml/badge.svg)](https://github.com/voilalz/fast-uav-guidance/actions/workflows/ci.yml)
+
 高速（约 600 km/h）小型固定翼无人机在 GNSS 拒止条件下的自主导航方案研究。
 
 - [总体方案](docs/navigation-design.md)：架构、景象匹配/地形匹配、ESKF 融合、误差预算、仿真与验证计划
