@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    # nav-only：只装编译器，验证导航核心不依赖 OpenCV；full：加 OpenCV/GDAL，构建视觉管线与 nav_demo。
+    name: Host build + ctest (${{ matrix.config }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [nav-only, full]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        if: matrix.config == 'full'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libopencv-dev libgdal-dev
+      - name: Configure
+        run: |
+          extra=""
+          if [ "${{ matrix.config }}" = "nav-only" ]; then extra="-DCMAKE_DISABLE_FIND_PACKAGE_OpenCV=ON"; fi
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-Werror -DCMAKE_C_FLAGS=-Werror $extra
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Check expected targets
+        run: |
+          test -x build/nav/nav_bench
+          if [ "${{ matrix.config }}" = "full" ]; then test -x build/demo/nav_demo; fi
+
+  mcu:
+    # 导航核心在 Cortex-M7（STM32H7 类）上的交叉编译检查，并报告代码体积。
+    name: Cortex-M7 cross-compile
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
+      - name: Compile navigation core
+        working-directory: nav
+        run: |
+          F="-O2 -mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard -ffunction-sections -fdata-sections -Wall -Wextra -Werror -Wno-psabi -Iinclude"
+          mkdir -p out
+          for f in eskf nav_core strapdown terrain; do
+            arm-none-eabi-g++ -std=c++17 -fno-exceptions -fno-rtti $F -c src/$f.cpp -o out/$f.o
+          done
+          arm-none-eabi-gcc -std=c99 $F -c src/protocol.c -o out/protocol.o
+          arm-none-eabi-size -t out/*.o | tee size.txt
+          echo '### Cortex-M7 navigation core size' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"; cat size.txt >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  python:
+    name: Python tools
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install numpy scipy matplotlib
+      - name: Byte-compile
+        run: python -m py_compile tools/*.py
+      - name: Reduced-order lockout model regression
+        run: python tools/test_lockout_theory.py
